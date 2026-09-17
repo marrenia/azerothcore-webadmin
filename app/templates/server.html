@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Server{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Server</h1>
+  <p>Live status, broadcasts, and realm power control.</p>
+</div>
+
+{% if not info %}
+  <div class="flash error">
+    The worldserver is not responding. Status and every control on this page is
+    unavailable until it comes back.
+    <div class="mono faint" style="margin-top:6px">systemctl status acore-worldserver</div>
+  </div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile">
+    <div class="n">{{ info.players if info and info.players is not none else '—' }}</div>
+    <div class="l">Connected</div>
+  </div>
+  <div class="tile">
+    <div class="n">{{ info.characters if info and info.characters is not none else '—' }}</div>
+    <div class="l">In world</div>
+  </div>
+  <div class="tile"><div class="n">{{ stats.accounts }}</div><div class="l">Accounts</div></div>
+  <div class="tile"><div class="n">{{ stats.tickets }}</div><div class="l">Open tickets</div></div>
+  <div class="tile"><div class="n">{{ stats.banned }}</div><div class="l">Banned</div></div>
+</div>
+
+<div class="card">
+  <h2>Status</h2>
+  <div class="card-body">
+    <dl class="props">
+      <dt>Realm</dt><dd>{{ realm.name if realm else '—' }}</dd>
+      <dt>Address</dt>
+      <dd class="mono">{{ realm.address }}:{{ realm.port }}
+        <span class="faint">&mdash; put this in realmlist.wtf</span></dd>
+      <dt>Worldserver</dt>
+      <dd>{% if info %}<span class="tag online">Responding</span>
+          {% else %}<span class="tag banned">Not responding</span>{% endif %}</dd>
+      {% if info and info.uptime %}<dt>Uptime</dt><dd class="mono">{{ info.uptime }}</dd>{% endif %}
+      {% if info and info.revision %}
+        <dt>Revision</dt><dd class="mono" style="font-size:11.5px">{{ info.revision }}</dd>
+      {% endif %}
+    </dl>
+    {% if info and info.raw %}
+      <p class="hint" style="margin:14px 0 6px">Raw <span class="mono">server info</span>:</p>
+      <pre class="out">{{ info.raw }}</pre>
+    {% endif %}
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <h2>Broadcast</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('server.broadcast') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="field" style="margin-bottom:10px">
+          <label for="bm">Message</label>
+          <input id="bm" name="message" maxlength="255" required
+                 placeholder="Server maintenance in 10 minutes">
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="bk">Delivery</label>
+            <select id="bk" name="kind">
+              <option value="announce">Announce &mdash; chat, everyone</option>
+              <option value="notify">Notify &mdash; on-screen, everyone</option>
+              <option value="gmannounce">Announce &mdash; GMs only</option>
+              <option value="gmnotify">Notify &mdash; GMs only</option>
+            </select>
+          </div>
+          <button {% if not info %}disabled{% endif %}>Send</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Message of the day</h2>
+    <div class="card-body">
+      {% if current_motd %}
+        <p class="hint" style="margin:0 0 10px">
+          Currently: <span class="chip">{{ current_motd }}</span>
+        </p>
+      {% endif %}
+      <form method="post" action="{{ url_for('server.set_motd') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="field" style="margin-bottom:10px">
+          <label for="mo">Shown at login</label>
+          <input id="mo" name="motd" maxlength="255" required
+                 placeholder="Welcome to Azeroth">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="ml">Locale</label>
+            <select id="ml" name="locale">
+              {% for loc in locales %}
+                <option value="{{ loc }}" {% if loc == 'enUS' %}selected{% endif %}>{{ loc }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button {% if not info %}disabled{% endif %}>Set MOTD</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        The server stores one message per locale &mdash; enUS is the one an English
+        client sees. Applies immediately; resets to the config value on restart.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Maintenance</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('server.saveall') }}" style="margin-bottom:14px">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button {% if not info %}disabled{% endif %}>Save all players now</button>
+        <span class="hint" style="margin-left:8px">Flushes every online character to the database.</span>
+      </form>
+      <form method="post" action="{{ url_for('server.set_closed') }}" class="row">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="field" style="flex:1">
+          <label for="sc">Realm gate</label>
+          <select id="sc" name="state">
+            <option value="on">Closed &mdash; GMs only</option>
+            <option value="off">Open &mdash; everyone</option>
+          </select>
+        </div>
+        <button {% if not info %}disabled{% endif %}>Apply</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Cancel pending</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('server.power') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="cancel">
+        <button {% if not info %}disabled{% endif %}>Cancel shutdown / restart</button>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        Aborts a countdown that has not fired yet.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="card warn-card">
+  <h2>Restart realm</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('server.power') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="restart">
+      <div class="row">
+        <div class="field">
+          <label for="rd">Delay (seconds)</label>
+          <input id="rd" name="delay" type="number" min="0" max="86400" value="60" style="width:120px">
+        </div>
+        <div class="field" style="flex:1">
+          <label for="rr">Reason shown to players</label>
+          <input id="rr" name="reason" maxlength="120" placeholder="Scheduled restart">
+        </div>
+        <div class="field">
+          <label for="rc">Type RESTART</label>
+          <input id="rc" name="confirm" autocomplete="off" required style="width:130px">
+        </div>
+        <button {% if not info %}disabled{% endif %}>Schedule restart</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-bottom:0">
+      The world exits with a restart code, so <strong>systemd brings it straight back up</strong>.
+      Expect a couple of minutes offline while the world reloads and bots log back in.
+    </p>
+  </div>
+</div>
+
+<div class="card danger-card">
+  <h2>Shut down realm</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('server.power') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="shutdown">
+      <div class="row">
+        <div class="field">
+          <label for="sd">Delay (seconds)</label>
+          <input id="sd" name="delay" type="number" min="0" max="86400" value="60" style="width:120px">
+        </div>
+        <div class="field" style="flex:1">
+          <label for="sr">Reason shown to players</label>
+          <input id="sr" name="reason" maxlength="120" placeholder="Maintenance">
+        </div>
+        <div class="field">
+          <label for="scf">Type SHUTDOWN</label>
+          <input id="scf" name="confirm" autocomplete="off" required style="width:140px">
+        </div>
+        <button class="danger" {% if not info %}disabled{% endif %}>Schedule shutdown</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-bottom:0">
+      A clean shutdown exits with code 0, which systemd treats as success &mdash; so the realm
+      <strong>stays down</strong> until you run
+      <span class="mono">systemctl start acore-worldserver</span> over SSH.
+      Use Restart above unless you mean to take it offline.
+    </p>
+  </div>
+</div>
+{% endblock %}

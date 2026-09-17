@@ -1,0 +1,54 @@
+[Unit]
+Description=AzerothCore web admin panel
+Documentation=https://github.com/marrenia/azerothcore-webadmin
+After=network-online.target mysql.service mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{SERVICE_USER}}
+Group={{SERVICE_USER}}
+WorkingDirectory={{APP_DIR}}
+
+# This panel has no TLS and a single shared admin login. BIND_ADDR should be a
+# loopback or private (VPN/tailnet) address - never a public interface.
+ExecStart=/usr/bin/python3 -m gunicorn \
+    --bind {{BIND_ADDR}}:{{PORT}} \
+    --workers {{WORKERS}} \
+    --threads 4 \
+    --timeout 30 \
+    --no-control-socket \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+
+Restart=on-failure
+RestartSec=10s
+
+Environment=ACORE_WEBADMIN_CONFIG_DIR={{CONFIG_DIR}}
+Environment=ACORE_STATE_DIR=/var/lib/{{STATE_DIR_NAME}}
+StateDirectory={{STATE_DIR_NAME}}
+StateDirectoryMode=0750
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=acore-webadmin
+
+# The app needs no write access anywhere except its StateDirectory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

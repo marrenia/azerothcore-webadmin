@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}World Customizer{% endblock %}
+{% block body %}
+<div class="page-head"><h1>World Customizer</h1><p>Guarded editors for realm content. Database-backed spawn changes require a world or map restart.</p></div>
+<div class="tiles">
+  {% for key,label in [('creatures','NPC types'),('spawns','NPC spawns'),('vendors','Vendors'),('objects','Gameobjects'),('teleports','Teleports')] %}
+  <a class="tile" href="{{ url_for('customize.index',section=key) }}"><div class="n">{{ counts.get(key,'—') }}</div><div class="l">{{ label }}</div></a>
+  {% endfor %}
+</div>
+<div class="card warn-card"><h2>Safe editing boundary</h2><div class="card-body hint">Edits are limited to reviewed columns and parameterized queries. Deletions require an exact token. Every write is recorded in the web-admin journal. Use coordinates copied from a trusted in-game position; this panel cannot infer a GM location.</div></div>
+<div class="card"><h2>Find content</h2><div class="card-body">
+<form method="get" class="row">
+<div class="field"><label for="section">Content</label><select id="section" name="section">
+{% for key,label in [('creatures','NPC types'),('spawns','NPC spawns'),('vendors','Vendors'),('objects','Gameobjects'),('teleports','Teleports')] %}<option value="{{ key }}" {{ 'selected' if section==key }}>{{ label }}</option>{% endfor %}
+</select></div><div class="field" style="flex:1"><label for="q">Name, template ID, or GUID</label><input id="q" name="q" value="{{ q }}" placeholder="Search…" required></div><button>Search</button>
+</form></div></div>
+{% if q %}<div class="card"><h2>Results <span class="count">— {{ rows|length }}</span></h2>
+{% if rows %}<div style="overflow:auto"><table><thead><tr>
+{% for col in rows[0].keys() %}<th>{{ col }}</th>{% endfor %}<th>Open</th></tr></thead><tbody>
+{% for row in rows %}<tr>{% for value in row.values() %}<td class="mono">{{ value }}</td>{% endfor %}<td>
+{% if section in ('creatures','vendors') %}<a href="{{ url_for('customize.creature',entry=row.entry) }}">Edit</a>
+{% elif section=='spawns' %}<a href="{{ url_for('customize.creature',entry=row.id) }}#spawn-{{ row.guid }}">Edit</a>
+{% elif section=='objects' %}<a href="{{ url_for('customize.gameobject',entry=row.entry) }}">Edit</a>
+{% else %}<a href="#tele-{{ row.id }}">Below</a>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="empty">No matches.</div>{% endif %}</div>{% endif %}
+{% if section=='teleports' %}
+<div class="card"><h2>Create or update teleport</h2><div class="card-body"><form method="post" action="{{ url_for('customize.teleport_save') }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><div class="row">
+{% for name,label,typ in [('id','ID','number'),('name','Name','text'),('map','Map','number'),('position_x','X','number'),('position_y','Y','number'),('position_z','Z','number'),('orientation','Orientation','number')] %}<div class="field"><label>{{ label }}</label><input name="{{ name }}" type="{{ typ }}" {% if typ=='number' %}step="any"{% endif %} required></div>{% endfor %}<button>Save and reload</button></div></form></div></div>
+{% if rows %}{% for t in rows %}<div class="card danger-card" id="tele-{{ t.id }}"><h2>{{ t.name }} <span class="count">#{{ t.id }}</span></h2><div class="card-body"><form method="post" action="{{ url_for('customize.teleport_delete',tele_id=t.id) }}" class="row"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><div class="field"><label>Type DELETE {{ t.id }}</label><input name="confirm" required autocomplete="off"></div><button class="danger">Delete teleport</button></form></div></div>{% endfor %}{% endif %}
+{% endif %}
+{% endblock %}

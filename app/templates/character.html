@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}{{ c.name }}{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px">
+    <a href="{{ url_for('chars.index') }}">&larr; All characters</a>
+  </p>
+  <h1>
+    <span style="color:{{ class_color(c['class']) }}">{{ c.name }}</span>
+    {% if c.online %}<span class="tag online">Online</span>
+    {% else %}<span class="tag offline">Offline</span>{% endif %}
+    {% set fac = race_faction(c.race) %}
+    <span class="tag {{ fac|lower }}">{{ fac }}</span>
+  </h1>
+  <p>
+    Level {{ c.level }} {{ race_name(c.race) }} {{ class_name(c['class']) }}
+    &middot; account <a href="{{ url_for('accounts.detail', account_id=c.account) }}"
+      class="mono">{{ c.username }}</a>
+    {% if c.guild %}&middot; &lt;{{ c.guild }}&gt;{% endif %}
+  </p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding, so every tool on this page is unavailable.
+    These are real GM commands and only the server can run them.
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>Overview</h2>
+  <div class="card-body">
+    <dl class="props">
+      <dt>GUID</dt><dd class="mono">{{ c.guid }}</dd>
+      <dt>Location</dt><dd>{{ zone_name(c.zone) }} <span class="faint">&mdash; {{ map_name(c.map) }}</span></dd>
+      <dt>Gold</dt><dd class="mono">{{ '{:,}'.format(c.money // 10000) }}g</dd>
+      <dt>Played</dt><dd class="mono">{{ (c.totaltime // 3600) }}h</dd>
+      <dt>Guild</dt><dd>{{ c.guild or '—' }}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <h2>Set level</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('chars.set_level', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="lv">Level (1&ndash;{{ max_level }})</label>
+            <input id="lv" name="level" type="number" min="1" max="{{ max_level }}"
+                   value="{{ c.level }}" required>
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Apply</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        Works whether the character is online or offline.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Kick from world</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('chars.kick', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="kr">Reason <span style="text-transform:none">(optional)</span></label>
+            <input id="kr" name="reason" maxlength="120">
+          </div>
+          <button class="danger"
+            {% if not world_up or not c.online %}disabled
+            title="{{ 'worldserver offline' if not world_up else 'character is not online' }}"
+            {% endif %}>Kick</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        {% if c.online %}Disconnects the character immediately.
+        {% else %}Only available while the character is online.{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Flag for change at next login</h2>
+    <div class="card-body">
+      <div class="row">
+        {% for kind, label in [('customize','Appearance'), ('changefaction','Faction'),
+                               ('changerace','Race')] %}
+          <form method="post" action="{{ url_for('chars.customize', guid=c.guid) }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            <button {% if not world_up %}disabled{% endif %}>{{ label }}</button>
+          </form>
+        {% endfor %}
+        <form method="post" action="{{ url_for('chars.rename', guid=c.guid) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button {% if not world_up %}disabled{% endif %}>Rename</button>
+        </form>
+      </div>
+      <p class="hint" style="margin-bottom:0">
+        Each flags the character so the client offers that change at the character screen.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Teleport</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('chars.teleport', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="tp">Destination</label>
+            <input id="tp" name="destination" list="telelist" required
+                   placeholder="start typing, e.g. Ironforge" autocomplete="off">
+            <datalist id="telelist">
+              {% for t in teles %}<option value="{{ t.name }}">{% endfor %}
+            </datalist>
+          </div>
+          <button {% if not world_up or not c.online %}disabled
+            title="{{ 'worldserver offline' if not world_up else 'character must be online' }}"
+            {% endif %}>Teleport</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        {{ teles|length }} known destinations. The character must be online.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Drop combat</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('chars.combatstop', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button {% if not world_up or not c.online %}disabled{% endif %}>Stop combat</button>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        Clears the character's combat state &mdash; useful when something is stuck.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Send item</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('chars.send_item', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row" style="margin-bottom:9px">
+          <div class="field">
+            <label for="ii">Item ID</label>
+            <input id="ii" name="item_id" type="number" min="1" required style="width:130px">
+          </div>
+          <div class="field">
+            <label for="ic">Count</label>
+            <input id="ic" name="count" type="number" min="1" max="100" value="1" style="width:100px">
+          </div>
+          <div class="field" style="flex:1">
+            <label for="is">Subject</label>
+            <input id="is" name="subject" maxlength="64" value="A gift">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="ib">Message</label>
+            <input id="ib" name="body" maxlength="500" value="Sent by the realm admin.">
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Send item</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        Delivered by in-game mail, so it works whether or not the character is online.
+        Item IDs are the values from <span class="mono">item_template</span>.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Send mail</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('chars.send_mail', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="field" style="margin-bottom:9px">
+          <label for="ms">Subject</label>
+          <input id="ms" name="subject" maxlength="64" required>
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <label for="mb">Body</label>
+          <textarea id="mb" name="body" maxlength="500" required></textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="mm">Attach gold <span style="text-transform:none">(optional)</span></label>
+            <input id="mm" name="money" type="number" min="1" max="999999" style="width:150px">
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Send mail</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        Arrives as in-game mail from the server. Quotes are not allowed in subject or body.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

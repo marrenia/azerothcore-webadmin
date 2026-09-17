@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Console{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Console</h1>
+  <p>Run any GM command against the worldserver, exactly as the in-game console would.</p>
+</div>
+
+<div class="card">
+  <h2>Run command</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('server.console') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field" style="flex:1;min-width:280px">
+          <label for="cmd">Command <span style="text-transform:none">(no leading dot)</span></label>
+          <input id="cmd" name="command" class="mono" maxlength="500" autofocus
+                 autocomplete="off" placeholder="server info" required>
+        </div>
+        <button {% if not world_up %}disabled title="worldserver offline"{% endif %}>Execute</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-top:12px;margin-bottom:0">
+      Try <span class="mono">server info</span>, <span class="mono">account onlinelist</span>,
+      <span class="mono">pinfo &lt;character&gt;</span>, <span class="mono">gm list</span>,
+      <span class="mono">banlist account</span>, <span class="mono">reload config</span>.
+      Output comes straight from the server.
+    </p>
+    <p class="hint" style="margin-bottom:0">
+      Blocked here:
+      {% for d in denied %}<span class="mono chip">{{ d }}</span> {% endfor %}
+      &mdash; these have dedicated pages that confirm the exact name first.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>
+    History <span class="count">&mdash; {{ history|length }}</span>
+    {% if history %}
+      <form method="post" action="{{ url_for('server.console_clear') }}" style="margin-left:auto">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="sm">Clear</button>
+      </form>
+    {% endif %}
+  </h2>
+  <div class="card-body">
+    {% if history %}
+      {% for h in history %}
+        <div style="margin-bottom:15px">
+          <div class="cmd-echo">{{ h.cmd }}</div>
+          <pre class="out {{ '' if h.ok else 'bad' }}">{{ h.out }}</pre>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty"><span class="big">&#9002;</span>No commands run yet this session.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

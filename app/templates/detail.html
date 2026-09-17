@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}{{ acc.username }}{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px"><a href="{{ url_for('accounts.index') }}">&larr; All accounts</a></p>
+  <h1>
+    {{ acc.username }}
+    {% if acc.ban %}<span class="tag banned">Banned</span>
+    {% elif acc.online %}<span class="tag online">Online</span>
+    {% else %}<span class="tag offline">Offline</span>{% endif %}
+    {% if acc.gmlevel %}<span class="tag gm">{{ GM_LEVELS[acc.gmlevel] }}</span>{% endif %}
+  </h1>
+  <p>Account #{{ acc.id }}</p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding, so deletions are unavailable. Everything else
+    on this page still works. Deletes are performed by the server itself so its own
+    cleanup runs &mdash; the panel will not remove rows behind its back.
+  </div>
+{% endif %}
+
+{% if acc.ban %}
+  <div class="flash error">
+    <strong>Banned</strong> by {{ acc.ban.bannedby }} &mdash; {{ acc.ban.banreason }}
+    {% if acc.ban.permanent %}(permanent){% endif %}
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>Overview</h2>
+  <div class="card-body">
+    <dl class="props">
+      <dt>Email</dt><dd>{{ acc.email or '—' }}</dd>
+      <dt>Expansion</dt><dd>{{ EXPANSIONS.get(acc.expansion, acc.expansion) }}</dd>
+      <dt>Created</dt><dd class="mono">{{ acc.joindate or '—' }}</dd>
+      <dt>Last login</dt><dd class="mono">{{ acc.last_login or 'never' }}</dd>
+      <dt>Last IP</dt><dd class="mono">{{ acc.last_ip }}</dd>
+      <dt>Failed logins</dt><dd class="mono">{{ acc.failed_logins }}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Reset password</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('accounts.set_password', account_id=acc.id) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="np">New password</label>
+            <input id="np" name="password" type="text" maxlength="16" required>
+          </div>
+          <button>Update</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">Signs the account out of any active session.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Access level</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('accounts.set_gmlevel', account_id=acc.id) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="gl">Level</label>
+            <select id="gl" name="gmlevel">
+              {% for val, name in GM_LEVELS.items() %}
+                <option value="{{ val }}" {% if val == acc.gmlevel %}selected{% endif %}>
+                  {{ val }} &ndash; {{ name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <button>Apply</button>
+        </div>
+      </form>
+      <p class="hint" style="margin-bottom:0">Applies to all realms, from next login.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Expansion</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('accounts.set_expansion', account_id=acc.id) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="ex">Content level</label>
+            <select id="ex" name="expansion">
+              {% for val, name in EXPANSIONS.items() %}
+                <option value="{{ val }}" {% if val == acc.expansion %}selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button>Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>{% if acc.ban %}Ban status{% else %}Ban account{% endif %}</h2>
+    <div class="card-body">
+      {% if acc.ban %}
+        <form method="post" action="{{ url_for('accounts.unban', account_id=acc.id) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button>Lift ban</button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('accounts.ban', account_id=acc.id) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <div class="row">
+            <div class="field" style="flex:1">
+              <label for="br">Reason</label>
+              <input id="br" name="reason" maxlength="255" placeholder="Banned via web admin">
+            </div>
+            <div class="field">
+              <label for="bd">Duration</label>
+              <select id="bd" name="duration">
+                <option value="permanent">Permanent</option>
+                <option value="1">1 day</option>
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+              </select>
+            </div>
+            <button class="danger">Ban</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Characters <span class="count">&mdash; {{ chars|length }}</span></h2>
+  {% if chars %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Lvl</th><th>Race &amp; Class</th><th>Location</th>
+        <th class="num">Gold</th><th class="num">Played</th><th>Status</th><th>Delete</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in chars %}
+      <tr>
+        <td>
+          <a href="{{ url_for('chars.detail', guid=c.guid) }}"
+             style="color:{{ class_color(c['class']) }};font-weight:650">{{ c.name }}</a>
+          {% if c.guild %}<div class="faint" style="font-size:12px">&lt;{{ c.guild }}&gt;</div>{% endif %}
+        </td>
+        <td><span class="lvl">{{ c.level }}</span></td>
+        <td>
+          {% set fac = race_faction(c.race) %}
+          <span class="tag {{ fac|lower }}">{{ fac }}</span>
+          <span class="muted">{{ race_name(c.race) }}</span>
+          <span style="color:{{ class_color(c['class']) }}">{{ class_name(c['class']) }}</span>
+        </td>
+        <td>
+          {{ zone_name(c.zone) }}
+          <div class="faint" style="font-size:12px">{{ map_name(c.map) }}</div>
+        </td>
+        <td class="num mono">{{ '{:,}'.format(c.money // 10000) }}g</td>
+        <td class="num mono muted">{{ (c.totaltime // 3600) }}h</td>
+        <td>
+          {% if c.online %}<span class="tag online">Online</span>
+          {% else %}<span class="tag offline">Offline</span>{% endif %}
+        </td>
+        <td>
+          <form method="post" action="{{ url_for('accounts.delete_character', guid=c.guid) }}"
+                class="row" style="gap:6px;flex-wrap:nowrap">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input name="confirm" placeholder="type {{ c.name }}" autocomplete="off"
+                   required style="width:130px;padding:5px 8px;font-size:12.5px">
+            <button class="danger sm" {% if not world_up %}disabled
+                    title="worldserver offline"{% endif %}>Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="card-body">
+    <p class="hint" style="margin:0">
+      Deleting a character runs the server's own erase command: it kicks the character if
+      online, returns COD mail to senders, hands off guild leadership, clears group, arena
+      and petition membership, deletes pets, and drops it from the server's caches. All of
+      it happens inside the worldserver, so nothing is left orphaned.
+    </p>
+  </div>
+  {% else %}
+    <div class="empty"><span class="big">&#9876;</span>No characters on this account.</div>
+  {% endif %}
+</div>
+
+<div class="card" style="border-color:#5c3030">
+  <h2 style="color:#e69696;background:linear-gradient(180deg,rgba(207,106,106,.08),transparent)">
+    Delete account
+  </h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('accounts.delete', account_id=acc.id) }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="cf">Type <span class="mono">{{ acc.username }}</span> to confirm</label>
+          <input id="cf" name="confirm" autocomplete="off" required>
+        </div>
+        <button class="danger" {% if not world_up %}disabled
+                title="worldserver offline"{% endif %}>Delete permanently</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-bottom:0">
+      This removes the account <strong>and all {{ chars|length }} of its characters</strong>,
+      via the server's own account delete command. There is no undo.
+    </p>
+  </div>
+</div>
+{% endblock %}

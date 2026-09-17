@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Tracker{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Player Tracker</h1>
+  <p>Follow a character or bot live: where it is, and what it appears to be doing.</p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding, so live sampling is unavailable.
+    Past samples are still readable.
+  </div>
+{% endif %}
+
+{% if watched %}
+<div class="card">
+  <h2>
+    Watch list <span class="count">&mdash; {{ watched|length }}</span>
+    <form method="post" action="{{ url_for('tracker.prune') }}" style="margin-left:auto">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="sm">Prune old samples</button>
+    </form>
+  </h2>
+  <table>
+    <thead>
+      <tr><th>Character</th><th>Last seen</th><th>Location</th><th>Activity</th>
+          <th class="num">Samples</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for w in watched %}
+      <tr>
+        <td><a href="{{ url_for('tracker.watch', guid=w.guid) }}"><strong>{{ w.name }}</strong></a></td>
+        <td class="mono muted">{{ w.latest.ts|ts if w.latest else '—' }}</td>
+        <td>
+          {% if w.latest %}
+            {{ w.latest.area or w.latest.zone or '—' }}
+            <div class="faint" style="font-size:12px">{{ w.latest.map or '' }}</div>
+          {% else %}<span class="faint">—</span>{% endif %}
+        </td>
+        <td class="muted">{{ w.headline }}</td>
+        <td class="num mono">{{ w.samples }}</td>
+        <td>
+          <a href="{{ url_for('tracker.watch', guid=w.guid) }}">Open &rarr;</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Pick someone to track <span class="count">&mdash; {{ candidates|length }} in world</span></h2>
+  <div class="card-body" style="padding-bottom:12px">
+    <form method="get" class="row" style="margin-bottom:12px">
+      <div class="field" style="flex:1;min-width:220px">
+        <label for="q">Search</label>
+        <input id="q" name="q" value="{{ search }}" placeholder="character or account name">
+      </div>
+      {% if show_bots %}<input type="hidden" name="bots" value="1">{% endif %}
+      <button>Search</button>
+    </form>
+    <p class="hint" style="margin:0">
+      {% if show_bots %}
+        Showing players and bots currently in world.
+        <a href="{{ url_for('tracker.index', q=search or None) }}">Players only</a>
+      {% else %}
+        Bots are hidden.
+        <a href="{{ url_for('tracker.index', q=search or None, bots=1) }}">Include bots</a>
+      {% endif %}
+    </p>
+  </div>
+
+  {% if candidates %}
+  <table>
+    <thead>
+      <tr><th>Character</th><th>Lvl</th><th>Race &amp; Class</th>
+          <th>Last known zone</th><th>Account</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for c in candidates %}
+      <tr>
+        <td>
+          <span style="color:{{ class_color(c['class']) }};font-weight:650">{{ c.name }}</span>
+          {% if c.is_bot %}<span class="tag bot">Bot</span>{% endif %}
+        </td>
+        <td><span class="lvl">{{ c.level }}</span></td>
+        <td>
+          {% set fac = race_faction(c.race) %}
+          <span class="tag {{ fac|lower }}">{{ fac }}</span>
+          <span class="muted">{{ race_name(c.race) }}</span>
+          <span style="color:{{ class_color(c['class']) }}">{{ class_name(c['class']) }}</span>
+        </td>
+        <td class="muted">{{ zone_name(c.zone) }}</td>
+        <td><a href="{{ url_for('accounts.detail', account_id=c.account) }}"
+               class="mono">{{ c.username }}</a></td>
+        <td><a href="{{ url_for('tracker.watch', guid=c.guid) }}">Track &rarr;</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">
+      <span class="big">&#9788;</span>
+      Nobody matching is in world right now.
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

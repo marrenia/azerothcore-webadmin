@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Never commit credentials or local state
+*.env
+!*.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+.DS_Store
+*.swp

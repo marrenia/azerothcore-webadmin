@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block body %}
+<div class="login-shell">
+  <section class="login-art" aria-label="Frozen citadel illustration">
+    <svg viewBox="0 0 520 520" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <radialGradient id="lg" cx="50%" cy="30%" r="70%"><stop stop-color="#67c9f4" stop-opacity=".25"/><stop offset="1" stop-color="#06101a" stop-opacity="0"/></radialGradient>
+        <linearGradient id="lm" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#759db5"/><stop offset="1" stop-color="#09131d"/></linearGradient>
+      </defs>
+      <rect width="520" height="520" fill="url(#lg)"/>
+      <g fill="none" stroke="#bdeeff" stroke-opacity=".20">
+        <path d="M78 70l22 22-22 22-22-22zM426 112l18 18-18 18-18-18z"/>
+        <path d="M260 28v76m-38-38h76M222 28l76 76m0-76l-76 76"/>
+      </g>
+      <path d="M0 335L85 214l62 82 87-154 72 139 72-93 73 102 69-60v290H0Z" fill="url(#lm)" opacity=".78"/>
+      <path d="M137 408h250l-25-35-12-119-38-22-15-89-18 89-39 24-13 117-22 34-17-66-27-18-13-74-15 74-28 18z" fill="#050a10"/>
+      <path d="M0 415q124-32 260 0t260 0v105H0z" fill="#c8f1ff" opacity=".09"/>
+    </svg>
+    <div class="login-art-copy">
+      <div class="eyebrow">&#10052; Secure realm access</div>
+      <h1>Citadel Command</h1>
+      <p>AzerothCore administration from within the tailnet.</p>
+    </div>
+  </section>
+  <section class="card login-card">
+    <h2>Sign in</h2>
+    <div class="card-body">
+    {% if locked %}
+      <div class="flash error">Too many failed attempts. Try again in {{ locked }} seconds.</div>
+    {% else %}
+      <form method="post">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="field" style="margin-bottom:14px">
+          <label for="u">Username</label>
+          <input id="u" name="username" autocomplete="username" autofocus required>
+        </div>
+        <div class="field" style="margin-bottom:18px">
+          <label for="p">Password</label>
+          <input id="p" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button>Enter command</button>
+      </form>
+      <p class="hint secure-note">Encrypted tailnet access only. Administrative actions remain protected by confirmation and audit controls.</p>
+    {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

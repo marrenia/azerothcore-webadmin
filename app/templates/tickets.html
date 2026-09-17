@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Tickets{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>GM Tickets</h1>
+  <p>Help requests raised by players in game.</p>
+</div>
+
+<div class="card">
+  <h2>
+    {{ 'All tickets' if show_closed else 'Open tickets' }}
+    <span class="count">&mdash; {{ rows|length }} shown, {{ open_count }} open</span>
+    <a href="{{ url_for('mod.tickets', closed=None if show_closed else 1) }}"
+       style="margin-left:auto;font-size:13px">
+      {{ 'Show open only' if show_closed else 'Include closed' }}</a>
+  </h2>
+
+  {% if rows %}
+    <div class="card-body">
+      {% for t in rows %}
+        <div style="border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+                    margin-bottom:12px;background:rgba(0,0,0,.18)">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+            <strong class="mono">#{{ t.id }}</strong>
+            {% if t.name %}
+              <span style="color:{{ class_color(t['class']) if t['class'] else '#ccc' }};font-weight:650">
+                {{ t.name }}</span>
+              {% if t.level %}<span class="lvl">{{ t.level }}</span>{% endif %}
+            {% endif %}
+            {% if t.completed %}<span class="tag offline">Closed</span>
+            {% else %}<span class="tag online">Open</span>{% endif %}
+            {% if t.escalated %}<span class="tag gm">Escalated</span>{% endif %}
+            {% if not t.viewed and not t.completed %}<span class="tag banned">Unread</span>{% endif %}
+            <span class="faint mono" style="margin-left:auto;font-size:12px">
+              {{ t.createTime|ts }} &middot; {{ map_name(t.mapId) }}</span>
+          </div>
+
+          <pre class="out" style="max-height:180px">{{ t.description }}</pre>
+
+          {% if t.comment %}
+            <p class="hint" style="margin:9px 0 0"><strong>GM note:</strong> {{ t.comment }}</p>
+          {% endif %}
+          {% if t.response %}
+            <p class="hint" style="margin:6px 0 0"><strong>Response:</strong> {{ t.response }}</p>
+          {% endif %}
+
+          {% if not t.completed %}
+          <div class="row" style="margin-top:11px">
+            <form method="post" action="{{ url_for('mod.comment_ticket', ticket_id=t.id) }}"
+                  class="row" style="flex:1;gap:8px">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <input name="comment" maxlength="400" placeholder="Add a GM note"
+                     style="flex:1;min-width:180px" required>
+              <button class="sm" {% if not world_up %}disabled{% endif %}>Comment</button>
+            </form>
+            <form method="post" action="{{ url_for('mod.close_ticket', ticket_id=t.id) }}">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button class="sm" {% if not world_up %}disabled{% endif %}>Close ticket</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <span class="big">&#9993;</span>
+      {{ 'No tickets at all.' if show_closed else 'No open tickets.' }}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

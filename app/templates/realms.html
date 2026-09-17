@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Realms{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Realms</h1>
+  <p>The realm list handed to clients after they authenticate.</p>
+</div>
+
+<div class="flash" style="background:rgba(224,184,119,.08);border-color:#8a6d3b;color:#e0c48a">
+  <strong>Address is the one field that silently breaks logins.</strong>
+  It is what the client is told to connect to <em>after</em> it authenticates, so a
+  wrong value gives no login error &mdash; players just hang at
+  &ldquo;Logging in to game server&rdquo;. It must be an address the
+  <em>client</em> can reach, not necessarily one this server can.
+  The authserver re-reads this table roughly every 20&nbsp;seconds
+  (<span class="mono">RealmsStateUpdateDelay</span>), so changes apply without a restart.
+</div>
+
+{% if local_addresses %}
+  <p class="hint">Addresses detected on this host:
+    {% for a in local_addresses %}<span class="mono">{{ a }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+{% endif %}
+
+{% for r in realms %}
+<div class="card">
+  <h2>{{ r.name }} <span class="faint mono" style="font-size:12px">id {{ r.id }}</span></h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('realm.save', realm_id=r.id) }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="n{{ r.id }}">Realm name</label>
+          <input id="n{{ r.id }}" name="name" maxlength="32" value="{{ r.name }}" required>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="a{{ r.id }}">Address (clients connect here)</label>
+          <input id="a{{ r.id }}" name="address" maxlength="255" value="{{ r.address }}" required>
+        </div>
+        <div class="field">
+          <label for="p{{ r.id }}">Port</label>
+          <input id="p{{ r.id }}" name="port" type="number" min="1" max="65535"
+                 value="{{ r.port }}" style="width:110px">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="la{{ r.id }}">Local address</label>
+          <input id="la{{ r.id }}" name="localAddress" maxlength="255" value="{{ r.localAddress }}">
+        </div>
+        <div class="field" style="flex:1">
+          <label for="lm{{ r.id }}">Local subnet mask</label>
+          <input id="lm{{ r.id }}" name="localSubnetMask" maxlength="255" value="{{ r.localSubnetMask }}">
+        </div>
+        <div class="field">
+          <label for="gb{{ r.id }}">Game build</label>
+          <input id="gb{{ r.id }}" name="gamebuild" type="number" min="0" max="999999"
+                 value="{{ r.gamebuild }}" style="width:120px">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="i{{ r.id }}">Realm type</label>
+          <select id="i{{ r.id }}" name="icon">
+            {% for value, label in icons.items() %}
+              <option value="{{ value }}" {{ 'selected' if r.icon == value }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="tz{{ r.id }}">Region</label>
+          <select id="tz{{ r.id }}" name="timezone">
+            {% for value, label in timezones.items() %}
+              <option value="{{ value }}" {{ 'selected' if r.timezone == value }}>{{ value }} &mdash; {{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="sec{{ r.id }}">Who may log in</label>
+          <select id="sec{{ r.id }}" name="allowedSecurityLevel">
+            {% for value, label in security.items() %}
+              <option value="{{ value }}" {{ 'selected' if r.allowedSecurityLevel == value }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Flags</label>
+        <div class="row" style="flex-wrap:wrap;gap:14px">
+          {% for bit, label in flags.items() %}
+            <label style="font-weight:normal;display:flex;align-items:center;gap:6px">
+              <input type="checkbox" name="flag_{{ bit }}" {{ 'checked' if bit in r.flag_bits }}>
+              {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button>Save realm</button>
+        <span class="hint">Current: <span class="mono">{{ r.address }}:{{ r.port }}</span>
+          &mdash; this is what goes in <span class="mono">realmlist.wtf</span></span>
+      </div>
+    </form>
+
+    {% if realms|length > 1 %}
+    <form method="post" action="{{ url_for('realm.delete', realm_id=r.id) }}"
+          style="margin-top:16px;padding-top:14px;border-top:1px solid #2a2a2a">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="d{{ r.id }}">Delete this realm &mdash; type <span class="mono">{{ r.name }}</span> to confirm</label>
+          <input id="d{{ r.id }}" name="confirm" placeholder="{{ r.name }}" autocomplete="off">
+        </div>
+        <button class="danger">Delete realm</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2>Add a realm</h2>
+  <div class="card-body">
+    <p class="hint">
+      A new row only appears in the client's realm list. It cannot be played until a
+      worldserver is running with a matching <span class="mono">RealmID</span> in its
+      <span class="mono">worldserver.conf</span>.
+    </p>
+    <form method="post" action="{{ url_for('realm.create') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="nn">Realm name</label>
+          <input id="nn" name="name" maxlength="32" required>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="na">Address</label>
+          <input id="na" name="address" maxlength="255" required
+                 value="{{ local_addresses[0] if local_addresses else '' }}">
+        </div>
+        <div class="field">
+          <label for="np">Port</label>
+          <input id="np" name="port" type="number" min="1" max="65535" value="8085" style="width:110px">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="ni">Realm type</label>
+          <select id="ni" name="icon">
+            {% for value, label in icons.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="ntz">Region</label>
+          <select id="ntz" name="timezone">
+            {% for value, label in timezones.items() %}
+              <option value="{{ value }}" {{ 'selected' if value == 1 }}>{{ value }} &mdash; {{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="ngb">Game build</label>
+          <input id="ngb" name="gamebuild" type="number" value="12340" style="width:120px">
+        </div>
+        <button>Create realm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

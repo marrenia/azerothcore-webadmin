@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Who's Online{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Who's Online</h1>
+  <p>Characters currently in world, refreshed each time you load this page.</p>
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <div class="n">{{ humans_online }}</div>
+    <div class="l">Players online</div>
+  </div>
+  <div class="tile">
+    <div class="n dim">{{ bots_online }}</div>
+    <div class="l">Bots online</div>
+  </div>
+  <div class="tile">
+    <div class="n" style="color:var(--alliance)">{{ factions.Alliance }}</div>
+    <div class="l">Alliance shown</div>
+  </div>
+  <div class="tile">
+    <div class="n" style="color:var(--horde)">{{ factions.Horde }}</div>
+    <div class="l">Horde shown</div>
+  </div>
+  <div class="tile">
+    <div class="n">{{ stats.characters }}</div>
+    <div class="l">Characters total</div>
+  </div>
+</div>
+
+{% if top_zones %}
+<div class="card">
+  <h2>Busiest zones <span class="count">&mdash; of those shown</span></h2>
+  <div class="card-body">
+    {% set top = top_zones[0][1] %}
+    {% for zone, n in top_zones %}
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:9px">
+        <div style="width:190px;font-size:13.5px">{{ zone }}</div>
+        <div class="bar" style="flex:1">
+          <span style="width:{{ (n / top * 100)|round(1) }}%;
+                       background:linear-gradient(90deg,var(--gold-dim),var(--gold))"></span>
+        </div>
+        <div class="mono muted" style="width:38px;text-align:right">{{ n }}</div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>
+    In world
+    <span class="count">&mdash; {{ players|length }} shown</span>
+  </h2>
+  <div class="card-body" style="padding-bottom:12px">
+    <p class="hint" style="margin:0">
+      {% if show_bots %}
+        Showing players and the {{ bots_online }} playerbots currently in world.
+        <a href="{{ url_for('accounts.online') }}">Show players only</a>
+      {% else %}
+        {{ bots_online }} playerbots are hidden.
+        <a href="{{ url_for('accounts.online', bots=1) }}">Include them</a>
+      {% endif %}
+    </p>
+  </div>
+
+  {% if players %}
+  <table>
+    <thead>
+      <tr>
+        <th>Character</th>
+        <th>Lvl</th>
+        <th>Race &amp; Class</th>
+        <th>Location</th>
+        <th>Account</th>
+        <th class="num">Gold</th>
+        <th class="num">Played</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in players %}
+      <tr>
+        <td>
+          <a href="{{ url_for('chars.detail', guid=p.guid) }}"
+             style="color:{{ class_color(p['class']) }};font-weight:650">{{ p.name }}</a>
+          {% if p.gmlevel %}<span class="tag gm">{{ GM_LEVELS[p.gmlevel] }}</span>{% endif %}
+          {% if p.is_bot %}<span class="tag bot">Bot</span>{% endif %}
+        </td>
+        <td><span class="lvl">{{ p.level }}</span></td>
+        <td>
+          {% set fac = race_faction(p.race) %}
+          <span class="tag {{ fac|lower }}">{{ fac }}</span>
+          <span class="muted">{{ race_name(p.race) }}</span>
+          <span style="color:{{ class_color(p['class']) }}">{{ class_name(p['class']) }}</span>
+        </td>
+        <td>
+          {{ zone_name(p.zone) }}
+          <div class="faint" style="font-size:12px">{{ map_name(p.map) }}</div>
+        </td>
+        <td>
+          <a href="{{ url_for('accounts.detail', account_id=p.account) }}" class="mono">{{ p.username }}</a>
+        </td>
+        <td class="num mono">{{ '{:,}'.format(p.money // 10000) }}g</td>
+        <td class="num mono muted">{{ (p.totaltime // 3600) }}h</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">
+      <span class="big">&#9789;</span>
+      Nobody is online right now.
+      {% if not show_bots and bots_online %}
+        <div style="margin-top:8px">
+          <a href="{{ url_for('accounts.online', bots=1) }}">{{ bots_online }} bots are in world</a>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

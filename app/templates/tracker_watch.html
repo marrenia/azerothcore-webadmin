@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Tracking {{ c.name }}{% endblock %}
+{% block head_extra %}{% endblock %}
+{% block body %}
+
+{% if refresh %}
+  <meta http-equiv="refresh" content="{{ refresh }}">
+{% endif %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px"><a href="{{ url_for('tracker.index') }}">&larr; Tracker</a></p>
+  <h1>
+    <span style="color:{{ class_color(c['class']) }}">{{ c.name }}</span>
+    {% if info and info.online %}<span class="tag online">In world</span>
+    {% else %}<span class="tag offline">Offline</span>{% endif %}
+    {% if c.is_bot %}<span class="tag bot">Bot</span>{% endif %}
+    {% if info and info.alive is false %}<span class="tag banned">Dead</span>{% endif %}
+  </h1>
+  <p>
+    Level {{ (info.level if info and info.level else c.level) }}
+    {{ race_name(c.race) }} {{ class_name(c['class']) }}
+    &middot; <a href="{{ url_for('chars.detail', guid=c.guid) }}">character tools</a>
+    &middot; <a href="{{ url_for('accounts.detail', account_id=c.account) }}"
+        class="mono">{{ c.username }}</a>
+  </p>
+</div>
+
+{% if sample_error %}
+  <div class="flash error">Could not sample: {{ sample_error }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>
+    Right now
+    <span class="count">&mdash; live from the server</span>
+    <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <form method="post" action="{{ url_for('tracker.toggle_watch', guid=c.guid) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="{{ 'remove' if watching else 'add' }}">
+        <button class="sm">{{ 'Unwatch' if watching else 'Add to watch list' }}</button>
+      </form>
+    </span>
+  </h2>
+  <div class="card-body">
+    <div style="font-size:19px;color:var(--gold-bright);font-weight:650;margin-bottom:4px">
+      {{ headline }}
+    </div>
+    {% if details %}
+      <div class="muted" style="margin-bottom:14px">
+        {% for d in details %}<div>&bull; {{ d }}</div>{% endfor %}
+      </div>
+    {% else %}
+      <div style="margin-bottom:14px"></div>
+    {% endif %}
+
+    <dl class="props">
+      <dt>Map</dt><dd>{{ info.map if info and info.map else '—' }}</dd>
+      <dt>Zone</dt><dd>{{ info.zone if info and info.zone else '—' }}</dd>
+      <dt>Area</dt>
+      <dd><strong>{{ info.area if info and info.area else '—' }}</strong></dd>
+      <dt>Alive</dt>
+      <dd>{% if info and info.alive is not none %}{{ 'Yes' if info.alive else 'No' }}
+          {% else %}—{% endif %}</dd>
+      <dt>Level / XP</dt>
+      <dd class="mono">
+        {% if info and info.xp is not none %}
+          {{ info.level }} &mdash; {{ '{:,}'.format(info.xp) }} / {{ '{:,}'.format(info.xp_max) }}
+        {% else %}{{ info.level if info else '—' }}{% endif %}
+      </dd>
+      <dt>Gold</dt>
+      <dd class="mono">{% if info and info.money is not none %}
+          {{ '{:,}'.format(info.money // 10000) }}g{% else %}—{% endif %}</dd>
+      <dt>Session</dt><dd class="mono">{{ info.online_for if info and info.online_for else '—' }}</dd>
+      <dt>Latency</dt>
+      <dd class="mono">{% if info and info.latency is not none %}{{ info.latency }} ms{% else %}—{% endif %}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <h2>Auto refresh</h2>
+    <div class="card-body">
+      <div class="row">
+        {% for r in refresh_choices %}
+          <a href="{{ url_for('tracker.watch', guid=c.guid, refresh=r) }}">
+            <button type="button" class="sm"
+              style="{{ 'border-color:var(--gold);color:var(--gold-bright)' if r == refresh else '' }}">
+              {{ 'Off' if r == 0 else r ~ 's' }}
+            </button>
+          </a>
+        {% endfor %}
+      </div>
+      <p class="hint" style="margin-bottom:0">
+        Each page load takes one live sample, so a shorter interval gives a finer
+        trail. {{ hist|length }} sample(s) held for this character.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Saved coordinates</h2>
+    <div class="card-body">
+      <dl class="props">
+        <dt>X / Y / Z</dt>
+        <dd class="mono">
+          {% if saved %}{{ '%.1f'|format(saved.position_x) }},
+            {{ '%.1f'|format(saved.position_y) }},
+            {{ '%.1f'|format(saved.position_z) }}{% else %}—{% endif %}
+        </dd>
+        <dt>Map / Zone</dt>
+        <dd>{% if saved %}{{ map_name(saved.map) }} &mdash; {{ zone_name(saved.zone) }}{% endif %}</dd>
+      </dl>
+      <form method="post" action="{{ url_for('tracker.sync_positions', guid=c.guid) }}"
+            style="margin-top:12px">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button {% if not world_up %}disabled{% endif %}>Force world save</button>
+      </form>
+      <p class="hint" style="margin-bottom:0">
+        Exact coordinates are not exposed by any console command &mdash; these come
+        from the database, which only updates on periodic save, so they lag behind
+        the live zone above. The button forces a save to make them current.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Movement trail <span class="count">&mdash; distinct locations, newest first</span></h2>
+  {% if trail %}
+  <table>
+    <thead><tr><th>When</th><th>Area</th><th>Zone</th><th>Map</th><th>Lvl</th><th>Alive</th></tr></thead>
+    <tbody>
+      {% for t in trail %}
+      <tr>
+        <td class="mono muted">{{ t.ts|ts }}</td>
+        <td><strong>{{ t.area or '—' }}</strong></td>
+        <td>{{ t.zone or '—' }}</td>
+        <td class="muted">{{ t.map or '—' }}</td>
+        <td class="mono">{{ t.level or '—' }}</td>
+        <td>{% if t.alive == 1 %}<span class="tag online">Yes</span>
+            {% elif t.alive == 0 %}<span class="tag banned">No</span>
+            {% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No samples yet. Reload to take one.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Raw samples <span class="count">&mdash; {{ hist|length }}</span></h2>
+  {% if hist %}
+  <table>
+    <thead><tr><th>When</th><th>Online</th><th>Area</th><th class="num">XP</th>
+               <th class="num">Gold</th><th class="num">Latency</th></tr></thead>
+    <tbody>
+      {% for h in hist[:25] %}
+      <tr>
+        <td class="mono muted">{{ h.ts|ts }}</td>
+        <td>{% if h.online %}<span class="tag online">Yes</span>
+            {% else %}<span class="tag offline">No</span>{% endif %}</td>
+        <td>{{ h.area or h.zone or '—' }}</td>
+        <td class="num mono">{{ '{:,}'.format(h.xp) if h.xp is not none else '—' }}</td>
+        <td class="num mono">{{ '{:,}'.format(h.money // 10000) ~ 'g' if h.money is not none else '—' }}</td>
+        <td class="num mono muted">{{ h.latency if h.latency is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">Nothing recorded yet.</div>
+  {% endif %}
+  <div class="card-body">
+    <p class="hint" style="margin:0">
+      Map, zone, area, alive state, level, XP, gold and session length are read live
+      from the server's memory. The activity headline is <em>inferred</em> by comparing
+      consecutive samples &mdash; the bot AI's internal strategy is not exposed over the
+      command interface, so this describes observable change, not the bot's own plan.
+    </p>
+  </div>
+</div>
+{% endblock %}

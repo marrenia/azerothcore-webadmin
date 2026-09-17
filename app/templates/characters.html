@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Characters{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Characters</h1>
+  <p>Browse every character on the realm and open one for GM tools.</p>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="n">{{ stats.characters }}</div><div class="l">Characters</div></div>
+  <div class="tile"><div class="n">{{ stats.chars_online }}</div><div class="l">In world</div></div>
+  <div class="tile"><div class="n">{{ stats.deleted }}</div><div class="l">Deleted</div></div>
+  <div class="tile"><div class="n">{{ stats.accounts }}</div><div class="l">Accounts</div></div>
+</div>
+
+<div class="card">
+  <h2>
+    All characters <span class="count">&mdash; {{ chars|length }} shown (max 300)</span>
+    <a href="{{ url_for('chars.deleted') }}" style="margin-left:auto;font-size:13px">
+      Deleted characters ({{ stats.deleted }}) &rarr;</a>
+  </h2>
+  <div class="card-body" style="padding-bottom:12px">
+    <form method="get" class="row" style="margin-bottom:12px">
+      <div class="field" style="flex:1;min-width:220px">
+        <label for="q">Search</label>
+        <input id="q" name="q" value="{{ search }}" placeholder="character or account name">
+      </div>
+      {% if show_bots %}<input type="hidden" name="bots" value="1">{% endif %}
+      <button>Search</button>
+      {% if search %}
+        <a href="{{ url_for('chars.index', bots=1 if show_bots else None) }}"
+           style="padding:9px 4px">Clear</a>
+      {% endif %}
+    </form>
+    <p class="hint" style="margin:0">
+      {% if show_bots %}
+        Including playerbot characters.
+        <a href="{{ url_for('chars.index', q=search or None) }}">Hide bots</a>
+      {% else %}
+        Playerbot characters are hidden.
+        <a href="{{ url_for('chars.index', q=search or None, bots=1) }}">Show them</a>
+      {% endif %}
+    </p>
+  </div>
+
+  {% if chars %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Lvl</th><th>Race &amp; Class</th><th>Guild</th>
+        <th>Location</th><th>Account</th><th class="num">Gold</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in chars %}
+      <tr>
+        <td>
+          <a href="{{ url_for('chars.detail', guid=c.guid) }}"
+             style="color:{{ class_color(c['class']) }};font-weight:650">{{ c.name }}</a>
+          {% if c.is_bot %}<span class="tag bot">Bot</span>{% endif %}
+        </td>
+        <td><span class="lvl">{{ c.level }}</span></td>
+        <td>
+          {% set fac = race_faction(c.race) %}
+          <span class="tag {{ fac|lower }}">{{ fac }}</span>
+          <span class="muted">{{ race_name(c.race) }}</span>
+          <span style="color:{{ class_color(c['class']) }}">{{ class_name(c['class']) }}</span>
+        </td>
+        <td class="muted">{{ ('<' ~ c.guild ~ '>') if c.guild else '—' }}</td>
+        <td>
+          {{ zone_name(c.zone) }}
+          <div class="faint" style="font-size:12px">{{ map_name(c.map) }}</div>
+        </td>
+        <td><a href="{{ url_for('accounts.detail', account_id=c.account) }}"
+               class="mono">{{ c.username }}</a></td>
+        <td class="num mono">{{ '{:,}'.format(c.money // 10000) }}g</td>
+        <td>
+          {% if c.online %}<span class="tag online">Online</span>
+          {% else %}<span class="tag offline">Offline</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty"><span class="big">&#9906;</span>No characters matched.</div>
+  {% endif %}
+</div>
+{% endblock %}

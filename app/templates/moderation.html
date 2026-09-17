@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Moderation{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Moderation</h1>
+  <p>Bans and mutes. Every action here runs as a real server command.</p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding. Existing bans are listed below, but new
+    bans, unbans and mutes cannot be applied until it is back.
+  </div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile"><div class="n">{{ account_bans|length }}</div><div class="l">Account bans</div></div>
+  <div class="tile"><div class="n">{{ char_bans|length }}</div><div class="l">Character bans</div></div>
+  <div class="tile"><div class="n">{{ ip_bans|length }}</div><div class="l">IP bans</div></div>
+  <div class="tile"><div class="n">{{ muted|length }}</div><div class="l">Muted</div></div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <h2>Apply a ban</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('mod.ban') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row" style="margin-bottom:10px">
+          <div class="field">
+            <label for="bk">Type</label>
+            <select id="bk" name="kind">
+              <option value="account">Account</option>
+              <option value="character">Character</option>
+              <option value="ip">IP address</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="bt">Target</label>
+            <input id="bt" name="target" required placeholder="name or 1.2.3.4">
+          </div>
+          <div class="field">
+            <label for="bd">Duration</label>
+            <select id="bd" name="duration">
+              {% for key, pair in durations.items() %}
+                <option value="{{ key }}">{{ pair[1] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="brs">Reason</label>
+            <input id="brs" name="reason" maxlength="200" placeholder="Banned via web admin">
+          </div>
+          <button class="danger" {% if not world_up %}disabled{% endif %}>Apply ban</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Mute a character</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('mod.mute') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row" style="margin-bottom:10px">
+          <div class="field" style="flex:1">
+            <label for="mt">Character</label>
+            <input id="mt" name="target" required>
+          </div>
+          <div class="field">
+            <label for="mm">Minutes</label>
+            <input id="mm" name="minutes" type="number" min="1" max="43200"
+                   value="60" style="width:110px">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="mr">Reason</label>
+            <input id="mr" name="reason" maxlength="200">
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Mute</button>
+        </div>
+      </form>
+      <form method="post" action="{{ url_for('mod.unmute') }}" style="margin-top:12px">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="umt">Unmute character</label>
+            <input id="umt" name="target" required>
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Unmute</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% macro bantable(rows, kind, label, keyfield) %}
+<div class="card">
+  <h2>{{ label }} <span class="count">&mdash; {{ rows|length }}</span></h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr><th>Target</th><th>Reason</th><th>By</th><th>Banned</th><th>Expires</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono"><strong>{{ r[keyfield] or '—' }}</strong></td>
+        <td>{{ r.banreason or '—' }}</td>
+        <td class="muted">{{ r.bannedby }}</td>
+        <td class="mono muted">{{ r.bandate|ts }}</td>
+        <td>
+          {% if r.permanent %}<span class="tag banned">Permanent</span>
+          {% else %}<span class="mono muted">{{ r.unbandate|until }}</span>{% endif %}
+        </td>
+        <td>
+          {% if r[keyfield] %}
+          <form method="post" action="{{ url_for('mod.unban') }}" class="inline-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            <input type="hidden" name="target" value="{{ r[keyfield] }}">
+            <button class="sm" {% if not world_up %}disabled{% endif %}>Lift</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No {{ label|lower }}.</div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{{ bantable(account_bans, 'account', 'Account bans', 'username') }}
+{{ bantable(char_bans, 'character', 'Character bans', 'name') }}
+{{ bantable(ip_bans, 'ip', 'IP bans', 'ip') }}
+
+<div class="card">
+  <h2>Muted accounts <span class="count">&mdash; {{ muted|length }}</span></h2>
+  {% if muted %}
+  <table>
+    <thead><tr><th>Account</th><th>Reason</th><th>By</th><th>Until</th></tr></thead>
+    <tbody>
+      {% for m in muted %}
+      <tr>
+        <td><a href="{{ url_for('accounts.detail', account_id=m.id) }}"
+               class="mono">{{ m.username }}</a></td>
+        <td>{{ m.mutereason or '—' }}</td>
+        <td class="muted">{{ m.muteby or '—' }}</td>
+        <td class="mono muted">{{ m.mutetime|ts }} <span class="faint">({{ m.mutetime|until }})</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">Nobody is muted.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Deleted characters{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px">
+    <a href="{{ url_for('chars.index') }}">&larr; All characters</a>
+  </p>
+  <h1>Deleted characters</h1>
+  <p>Characters deleted in game are kept here and can be restored.</p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding, so restore and purge are unavailable.
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>Recoverable <span class="count">&mdash; {{ rows|length }}</span></h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Lvl</th><th>Race &amp; Class</th>
+        <th>Original account</th><th>Deleted</th><th>Restore</th><th>Purge</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><span style="color:{{ class_color(r['class']) }};font-weight:650">{{ r.name or '—' }}</span></td>
+        <td><span class="lvl">{{ r.level }}</span></td>
+        <td>
+          {% set fac = race_faction(r.race) %}
+          <span class="tag {{ fac|lower }}">{{ fac }}</span>
+          <span class="muted">{{ race_name(r.race) }}</span>
+          <span style="color:{{ class_color(r['class']) }}">{{ class_name(r['class']) }}</span>
+        </td>
+        <td>
+          {% if r.username %}
+            <a href="{{ url_for('accounts.detail', account_id=r.account) }}"
+               class="mono">{{ r.username }}</a>
+          {% else %}<span class="faint mono">account {{ r.account }} gone</span>{% endif %}
+        </td>
+        <td class="mono muted">{{ r.deleteDate|ts }}</td>
+        <td>
+          <form method="post" action="{{ url_for('chars.restore', guid=r.guid) }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <button class="sm" {% if not world_up %}disabled{% endif %}>Restore</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" action="{{ url_for('chars.purge', guid=r.guid) }}" class="inline-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input name="confirm" placeholder="type {{ r.name }}" autocomplete="off" required
+                   style="width:120px;padding:5px 8px;font-size:12.5px">
+            <button class="danger sm" {% if not world_up %}disabled{% endif %}>Purge</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="card-body">
+    <p class="hint" style="margin:0">
+      Restore puts the character back on its original account. Purge deletes it
+      permanently and cannot be undone. If the original account is gone, restore
+      will fail &mdash; recreate the account first.
+    </p>
+  </div>
+  {% else %}
+    <div class="empty">
+      <span class="big">&#9851;</span>
+      Nothing has been deleted in game.
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

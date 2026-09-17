@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Accounts{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Accounts</h1>
+  <p>Create game accounts, reset passwords, and manage access for this realm.</p>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="n">{{ stats.accounts }}</div><div class="l">Accounts</div></div>
+  <div class="tile"><div class="n">{{ stats.chars_online }}</div><div class="l">In world</div></div>
+  <div class="tile"><div class="n">{{ stats.characters }}</div><div class="l">Characters</div></div>
+  <div class="tile"><div class="n">{{ stats.gm }}</div><div class="l">Staff</div></div>
+  <div class="tile"><div class="n">{{ stats.banned }}</div><div class="l">Banned</div></div>
+  <div class="tile"><div class="n dim">{{ stats.bots }}</div><div class="l">Bot accounts</div></div>
+</div>
+
+<div class="card">
+  <h2>Create account</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('accounts.create') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field">
+          <label for="cu">Username</label>
+          <input id="cu" name="username" maxlength="16" required pattern="[A-Za-z0-9]+"
+                 title="Letters and numbers only" placeholder="e.g. MARRENIA">
+        </div>
+        <div class="field">
+          <label for="cp">Password</label>
+          <input id="cp" name="password" type="text" maxlength="16" required>
+        </div>
+        <div class="field">
+          <label for="ce">Email <span style="text-transform:none">(optional)</span></label>
+          <input id="ce" name="email" type="email" maxlength="255">
+        </div>
+        <div class="field">
+          <label for="cx">Expansion</label>
+          <select id="cx" name="expansion">
+            {% for val, name in EXPANSIONS.items() %}
+              <option value="{{ val }}" {% if val == 2 %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button>Create account</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-bottom:0;margin-top:12px">
+      Usernames and passwords are capped at 16 characters by the 3.3.5 client and are
+      case-insensitive at the login screen. The password is shown in clear on purpose &mdash;
+      it is stored as an SRP6 verifier and can never be read back, only reset.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>All accounts <span class="count">&mdash; {{ accounts|length }} shown</span></h2>
+  <div class="card-body" style="padding-bottom:12px">
+    <form method="get" class="row" style="margin-bottom:12px">
+      <div class="field" style="flex:1;min-width:220px">
+        <label for="q">Search</label>
+        <input id="q" name="q" value="{{ search }}" placeholder="username or email">
+      </div>
+      {% if show_bots %}<input type="hidden" name="bots" value="1">{% endif %}
+      <button>Search</button>
+      {% if search %}
+        <a href="{{ url_for('accounts.index', bots=1 if show_bots else None) }}"
+           style="padding:9px 4px">Clear</a>
+      {% endif %}
+    </form>
+    <p class="hint" style="margin:0">
+      {% if show_bots %}
+        Showing all accounts, including the {{ stats.bots }} created by the playerbots module.
+        <a href="{{ url_for('accounts.index', q=search or None) }}">Hide bot accounts</a>
+      {% else %}
+        {{ stats.bots }} playerbot accounts (<span class="mono">{{ bot_prefix }}*</span>) are hidden.
+        <a href="{{ url_for('accounts.index', q=search or None, bots=1) }}">Show them</a>
+      {% endif %}
+    </p>
+  </div>
+
+  {% if accounts %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Account</th><th>Status</th>
+        <th class="num">Chars</th><th>Expansion</th>
+        <th>Created</th><th>Last login</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in accounts %}
+      <tr>
+        <td class="mono faint">{{ a.id }}</td>
+        <td>
+          <a href="{{ url_for('accounts.detail', account_id=a.id) }}"><strong>{{ a.username }}</strong></a>
+          {% if a.email %}<div class="faint" style="font-size:12px">{{ a.email }}</div>{% endif %}
+        </td>
+        <td>
+          {% if a.ban %}<span class="tag banned">Banned</span>
+          {% elif a.online %}<span class="tag online">Online</span>
+          {% else %}<span class="tag offline">Offline</span>{% endif %}
+          {% if a.gmlevel %}<span class="tag gm">{{ GM_LEVELS[a.gmlevel] }}</span>{% endif %}
+        </td>
+        <td class="num mono">{{ a.chars }}</td>
+        <td class="muted">{{ EXPANSIONS.get(a.expansion, a.expansion) }}</td>
+        <td class="muted mono">{{ a.joindate.strftime('%Y-%m-%d') if a.joindate else '—' }}</td>
+        <td class="muted mono">{{ a.last_login.strftime('%Y-%m-%d %H:%M') if a.last_login else 'never' }}</td>
+        <td><a href="{{ url_for('accounts.detail', account_id=a.id) }}">Manage &rarr;</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty"><span class="big">&#9906;</span>No accounts matched.</div>
+  {% endif %}
+</div>
+{% endblock %}

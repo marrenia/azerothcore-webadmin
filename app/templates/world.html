@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}World{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>World</h1>
+  <p>Guilds, arena teams and data reloads.</p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding. Everything on this page needs it.
+  </div>
+{% endif %}
+
+<div class="flash" style="background:rgba(224,184,119,.08);border-color:#8a6d3b;color:#e0c48a">
+  Spawning creatures and gameobjects is not offered here on purpose: those commands
+  place the object at the GM's own in-world position and AzerothCore flags them as
+  unavailable to the console, so no web panel can drive them. Use an in-game GM
+  character for spawning. Giving items <em>does</em> work &mdash; it is on each
+  character's page, delivered by mail.
+</div>
+
+<div class="split">
+  <div class="card">
+    <h2>Create guild</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('world.guild_create') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="gl">Leader character</label>
+            <input id="gl" name="leader" required>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="gn">Guild name</label>
+            <input id="gn" name="name" maxlength="24" required>
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Rename guild</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('world.guild_rename') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="go">Current name</label>
+            <input id="go" name="old" maxlength="24" required>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="gnn">New name</label>
+            <input id="gnn" name="new" maxlength="24" required>
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Rename</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Guild membership</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('world.guild_member') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row" style="margin-bottom:10px">
+          <div class="field" style="flex:1">
+            <label for="gp">Character</label>
+            <input id="gp" name="player" required>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="gg">Guild <span style="text-transform:none">(invite only)</span></label>
+            <input id="gg" name="guild" maxlength="24">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="ga">Action</label>
+            <select id="ga" name="action">
+              <option value="invite">Invite to guild</option>
+              <option value="uninvite">Remove from guild</option>
+              <option value="rank">Set rank</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="gr">Rank <span style="text-transform:none">(for set rank)</span></label>
+            <select id="gr" name="rank">
+              <option value="0">0 - Guild Master</option>
+              <option value="1">1 - Officer</option>
+              <option value="2">2 - Veteran</option>
+              <option value="3">3 - Member</option>
+              <option value="4" selected>4 - Initiate</option>
+            </select>
+          </div>
+          <button {% if not world_up %}disabled{% endif %}>Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card danger-card">
+    <h2>Disband guild</h2>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('world.guild_delete') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="gd">Guild name</label>
+            <input id="gd" name="name" maxlength="24" required>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="gdc">Type the name again</label>
+            <input id="gdc" name="confirm" autocomplete="off" required>
+          </div>
+          <button class="danger" {% if not world_up %}disabled{% endif %}>Disband</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Arena teams</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('world.arena') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row" style="margin-bottom:10px">
+        <div class="field">
+          <label for="aa">Action</label>
+          <select id="aa" name="action">
+            <option value="create">Create</option>
+            <option value="rename">Rename</option>
+            <option value="disband">Disband</option>
+            <option value="lookup">Look up</option>
+          </select>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="an">Team name</label>
+          <input id="an" name="name" maxlength="24" required>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="ac">Captain <span style="text-transform:none">(create)</span></label>
+          <input id="ac" name="captain">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="at">Bracket</label>
+          <select id="at" name="type">
+            <option value="2">2v2</option>
+            <option value="3">3v3</option>
+            <option value="5">5v5</option>
+          </select>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="anew">New name <span style="text-transform:none">(rename)</span></label>
+          <input id="anew" name="new" maxlength="24">
+        </div>
+        <div class="field" style="flex:1">
+          <label for="acf">Confirm name <span style="text-transform:none">(disband)</span></label>
+          <input id="acf" name="confirm" autocomplete="off">
+        </div>
+        <button {% if not world_up %}disabled{% endif %}>Run</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Reload server data</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('world.reload_table') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="rt">Target</label>
+          <select id="rt" name="target">
+            {% for value, label in reloads %}
+              <option value="{{ value }}">{{ label }} &mdash; {{ value }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button {% if not world_up %}disabled{% endif %}>Reload</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-bottom:0">
+      Applies database changes without a restart. Any other reload target is
+      available from the Console tab.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Guilds on this realm <span class="count">&mdash; {{ guilds|length }}</span></h2>
+  {% if guilds %}
+  <table>
+    <thead><tr><th>Guild</th><th>Leader</th><th class="num">Members</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for g in guilds %}
+      <tr>
+        <td><strong>{{ g.name }}</strong></td>
+        <td class="muted">{{ g.leader or '—' }}</td>
+        <td class="num mono">{{ g.members }}</td>
+        <td class="mono muted">{{ g.createdate|ts }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty"><span class="big">&#9884;</span>No guilds yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
