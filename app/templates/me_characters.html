@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}My characters{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px"><a href="{{ url_for('self.index') }}">&larr; My account</a></p>
+  <h1>My characters</h1>
+  <p>Only characters on your own account.</p>
+</div>
+
+<div class="card">
+  <h2>Active <span class="count">&mdash; {{ chars|length }}</span></h2>
+  {% if chars %}
+  <table>
+    <thead><tr><th>Name</th><th>Race</th><th>Class</th><th class="num">Level</th><th></th></tr></thead>
+    <tbody>
+      {% for c in chars %}
+      <tr>
+        <td><a href="{{ url_for('self.character_detail', guid=c.guid) }}">{{ c.name }}</a>
+          {% if c.online %}<span class="tag online">Online</span>{% endif %}</td>
+        <td>{{ race_name(c.race) }}</td>
+        <td>{{ class_name(c['class']) }}</td>
+        <td class="num"><span class="lvl">{{ c.level }}</span></td>
+        <td></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No characters yet.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Deleted <span class="count">&mdash; {{ deleted|length }}</span></h2>
+  {% if deleted %}
+  <table>
+    <thead><tr><th>Name</th><th>Race</th><th>Class</th><th class="num">Level</th><th>Deleted</th></tr></thead>
+    <tbody>
+      {% for c in deleted %}
+      <tr>
+        <td>{{ c.name or '—' }}</td>
+        <td>{{ race_name(c.race) }}</td>
+        <td>{{ class_name(c['class']) }}</td>
+        <td class="num"><span class="lvl">{{ c.level }}</span></td>
+        <td class="mono muted">{{ c.deleteDate|ts }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No deleted characters.</div>
+  {% endif %}
+</div>
+{% endblock %}

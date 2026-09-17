@@ -8,7 +8,10 @@ import math
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from pymysql.err import MySQLError
 
-from core import WORLD_DB, execute, login_required, query, server_online, soap
+from core import (
+    ROLE_ADMIN, ROLE_GAMEMASTER, WORLD_DB, execute, query, require_role,
+    server_online, soap,
+)
 from soap import SoapError
 
 bp = Blueprint("customize", __name__, url_prefix="/customize")
@@ -79,7 +82,7 @@ def _fail(exc, endpoint="customize.index", **values):
 
 
 @bp.route("")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def index():
     section = request.args.get("section", "creatures")
     q = (request.args.get("q") or "").strip()[:100]
@@ -123,7 +126,7 @@ def index():
 
 
 @bp.route("/creature/<int:entry>")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def creature(entry):
     npc = query(f"SELECT * FROM {WORLD_DB}.creature_template WHERE entry=%s", (entry,), one=True)
     if not npc:
@@ -137,7 +140,7 @@ def creature(entry):
 
 
 @bp.route("/creature/<int:entry>/update", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def creature_update(entry):
     try:
         values = (_text("name",100,True), _text("subname",100),
@@ -164,7 +167,7 @@ def creature_update(entry):
 
 
 @bp.route("/creature/<int:entry>/clone", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def creature_clone(entry):
     try:
         new_entry = _int("new_entry",1)
@@ -182,7 +185,7 @@ def creature_clone(entry):
 
 
 @bp.route("/creature/<int:entry>/spawn", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def spawn_add(entry):
     try:
         guid = query(f"SELECT COALESCE(MAX(guid),0)+1 n FROM {WORLD_DB}.creature", one=True)["n"]
@@ -199,7 +202,7 @@ def spawn_add(entry):
 
 
 @bp.route("/spawn/<int:guid>/update", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def spawn_update(guid):
     row = query(f"SELECT id FROM {WORLD_DB}.creature WHERE guid=%s", (guid,), one=True)
     if not row:
@@ -219,7 +222,7 @@ def spawn_update(guid):
 
 
 @bp.route("/spawn/<int:guid>/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def spawn_delete(guid):
     row = query(f"SELECT id FROM {WORLD_DB}.creature WHERE guid=%s", (guid,), one=True)
     if not row:
@@ -236,7 +239,7 @@ def spawn_delete(guid):
 
 
 @bp.route("/creature/<int:entry>/vendor", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def vendor_save(entry):
     try:
         item = _int("item",1)
@@ -256,7 +259,7 @@ def vendor_save(entry):
 
 
 @bp.route("/creature/<int:entry>/vendor/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def vendor_delete(entry):
     try:
         item = _int("item",1); cost = _int("ExtendedCost")
@@ -274,7 +277,7 @@ def vendor_delete(entry):
 
 
 @bp.route("/teleport", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def teleport_save():
     try:
         tele_id = _int("id",1)
@@ -296,7 +299,7 @@ def teleport_save():
 
 
 @bp.route("/teleport/<int:tele_id>/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def teleport_delete(tele_id):
     try:
         _confirm(f"DELETE {tele_id}")
@@ -312,7 +315,7 @@ def teleport_delete(tele_id):
 
 
 @bp.route("/object/<int:entry>")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def gameobject(entry):
     obj=query(f"SELECT * FROM {WORLD_DB}.gameobject_template WHERE entry=%s",(entry,),one=True)
     if not obj:
@@ -322,7 +325,7 @@ def gameobject(entry):
     return render_template("customize/object.html",obj=obj,spawns=spawns,go_types=GO_TYPES,nav="customize")
 
 @bp.route("/object/<int:entry>/update",methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def gameobject_update(entry):
     try:
         values=(_int("type",0,35),_int("displayId"),_text("name",100,True),_float("size",0.01,1000),_text("AIName",64),_text("ScriptName",64),entry)
@@ -340,7 +343,7 @@ def gameobject_update(entry):
 
 
 @bp.route("/object/<int:entry>/spawn",methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def gameobject_spawn_add(entry):
     try:
         guid=query(f"SELECT COALESCE(MAX(guid),0)+1 n FROM {WORLD_DB}.gameobject",one=True)["n"]
@@ -353,7 +356,7 @@ def gameobject_spawn_add(entry):
 
 
 @bp.route("/object-spawn/<int:guid>/delete",methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def gameobject_spawn_delete(guid):
     row=query(f"SELECT id FROM {WORLD_DB}.gameobject WHERE guid=%s",(guid,),one=True)
     if not row:

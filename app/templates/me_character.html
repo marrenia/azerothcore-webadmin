@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ c.name }}{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px"><a href="{{ url_for('self.characters') }}">&larr; My characters</a></p>
+  <h1>{{ c.name }} {% if c.online %}<span class="tag online">Online</span>{% endif %}</h1>
+  <p>Read-only view of your own character.</p>
+</div>
+
+<div class="card">
+  <h2>Overview</h2>
+  <div class="card-body">
+    <dl class="props">
+      <dt>Race</dt><dd>{{ race_name(c.race) }}</dd>
+      <dt>Class</dt><dd>{{ class_name(c['class']) }}</dd>
+      <dt>Level</dt><dd><span class="lvl">{{ c.level }}</span></dd>
+      <dt>Money</dt><dd class="mono">{{ '%.2f'|format(c.money / 10000) }}g</dd>
+      <dt>Location</dt><dd>{{ map_name(c.map) }} &mdash; {{ zone_name(c.zone) }}</dd>
+      <dt>Played time</dt><dd class="mono">{{ (c.totaltime / 3600)|round(1) }}h</dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}

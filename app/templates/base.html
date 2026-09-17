@@ -389,6 +389,7 @@
   <div class="topbar-inner">
     <span class="brand"><span class="crest">&#9876;</span> Realm Admin</span>
     <nav class="tabs">
+      {% if role in (ROLE_GAMEMASTER, ROLE_ADMIN) %}
       <a href="{{ url_for('accounts.index') }}"  class="{{ 'on' if nav == 'accounts' }}">Accounts</a>
       <a href="{{ url_for('chars.index') }}"     class="{{ 'on' if nav == 'characters' }}">Characters</a>
       <a href="{{ url_for('accounts.online') }}" class="{{ 'on' if nav == 'online' }}">Online</a>
@@ -396,12 +397,30 @@
       <a href="{{ url_for('mod.index') }}"       class="{{ 'on' if nav == 'moderation' }}">Moderation</a>
       <a href="{{ url_for('world.index') }}"     class="{{ 'on' if nav == 'world' }}">World</a>
       <a href="{{ url_for('customize.index') }}" class="{{ 'on' if nav == 'customize' }}">Customize</a>
+      {% endif %}
+      {% if role in (ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN) %}
       <a href="{{ url_for('mod.tickets') }}"     class="{{ 'on' if nav == 'tickets' }}">Tickets</a>
+      {% endif %}
+      {% if role == ROLE_MODERATOR %}
+      <a href="{{ url_for('mod.mutes') }}"       class="{{ 'on' if nav == 'mutes' }}">Mute / Kick</a>
+      {% endif %}
+      {% if role == ROLE_ADMIN %}
       <a href="{{ url_for('realm.index') }}"     class="{{ 'on' if nav == 'realms' }}">Realms</a>
+      {% endif %}
+      {% if role in (ROLE_GAMEMASTER, ROLE_ADMIN) %}
       <a href="{{ url_for('server.dashboard') }}" class="{{ 'on' if nav == 'server' }}">Server</a>
+      {% endif %}
+      {% if role == ROLE_ADMIN %}
       <a href="{{ url_for('server.console') }}"  class="{{ 'on' if nav == 'console' }}">Console</a>
+      {% endif %}
+      {% if session_account_id is not none %}
+      <a href="{{ url_for('self.index') }}"      class="{{ 'on' if nav == 'me' }}">My Account</a>
+      {% endif %}
     </nav>
     <div class="right">
+      {% if role is not none %}
+        <span class="chip">{{ ROLE_NAMES.get(role, role) }}</span>
+      {% endif %}
       {% if active_realm %}
         <span class="realm-pill" title="{{ 'worldserver online' if world_up else 'worldserver not responding' }}">
           <span class="dot {{ '' if world_up else 'down' }}"></span>{{ active_realm.name }}

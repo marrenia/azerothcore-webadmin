@@ -13,7 +13,7 @@ import socket
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
-from core import AUTH_DB, execute, login_required, query
+from core import AUTH_DB, ROLE_ADMIN, execute, query, require_role
 
 bp = Blueprint("realm", __name__)
 
@@ -148,7 +148,7 @@ def _validate(form, realm_id=None):
 
 
 @bp.route("/realms")
-@login_required
+@require_role(ROLE_ADMIN)
 def index():
     realms = query(f"SELECT * FROM {AUTH_DB}.realmlist ORDER BY id")
     # Jinja has no bitwise operator, so decode the flag bitmask here.
@@ -162,7 +162,7 @@ def index():
 
 
 @bp.route("/realms/<int:realm_id>/save", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def save(realm_id):
     realm = query(f"SELECT * FROM {AUTH_DB}.realmlist WHERE id=%s", (realm_id,), one=True)
     if not realm:
@@ -194,7 +194,7 @@ def save(realm_id):
 
 
 @bp.route("/realms/create", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def create():
     values, errors = _validate(request.form)
     if errors:
@@ -220,7 +220,7 @@ def create():
 
 
 @bp.route("/realms/<int:realm_id>/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def delete(realm_id):
     realm = query(f"SELECT * FROM {AUTH_DB}.realmlist WHERE id=%s", (realm_id,), one=True)
     if not realm:

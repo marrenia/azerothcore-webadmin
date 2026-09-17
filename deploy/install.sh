@@ -22,11 +22,23 @@ CONFIG_DIR="${CONFIG_DIR:-/etc/acore}"
 STATE_DIR_NAME="${STATE_DIR_NAME:-acore-webadmin}"
 SERVICE_NAME="${SERVICE_NAME:-acore-webadmin}"
 
-# Default to loopback on purpose. This panel has no TLS and no multi-user model;
+# BIND_ADDR is the address end users reach. Default to loopback on purpose:
 # binding it to a public interface would expose a GM console to the internet.
+# With ENABLE_TLS=1 (the default) BIND_ADDR is where the TLS proxy listens;
+# the app process itself always binds 127.0.0.1 only, never BIND_ADDR
+# directly, so there is exactly one way in and it is TLS-terminated.
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
 PORT="${PORT:-8090}"
 WORKERS="${WORKERS:-2}"
+
+# TLS: on by default. Set ENABLE_TLS=0 only for a purely loopback,
+# single-machine install where a proxy would add nothing.
+ENABLE_TLS="${ENABLE_TLS:-1}"
+HTTPS_PORT="${HTTPS_PORT:-443}"
+HTTP_PORT="${HTTP_PORT:-80}"
+TLS_CERT_PATH="${TLS_CERT_PATH:-$CONFIG_DIR/tls/fullchain.pem}"
+TLS_KEY_PATH="${TLS_KEY_PATH:-$CONFIG_DIR/tls/privkey.pem}"
+TLS_CN="${TLS_CN:-$BIND_ADDR}"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-3306}"
@@ -204,12 +216,21 @@ fi
 
 # ------------------------------------------------------------------ systemd
 
+if [[ "$ENABLE_TLS" == "1" ]]; then
+    APP_BIND_ADDR="127.0.0.1"
+    BEHIND_TLS_PROXY="1"
+else
+    APP_BIND_ADDR="$BIND_ADDR"
+    BEHIND_TLS_PROXY="0"
+fi
+
 say "Installing systemd unit '$SERVICE_NAME.service'"
 sed -e "s|{{SERVICE_USER}}|$SERVICE_USER|g" \
     -e "s|{{APP_DIR}}|$APP_DIR|g" \
     -e "s|{{CONFIG_DIR}}|$CONFIG_DIR|g" \
     -e "s|{{STATE_DIR_NAME}}|$STATE_DIR_NAME|g" \
-    -e "s|{{BIND_ADDR}}|$BIND_ADDR|g" \
+    -e "s|{{APP_BIND_ADDR}}|$APP_BIND_ADDR|g" \
+    -e "s|{{BEHIND_TLS_PROXY}}|$BEHIND_TLS_PROXY|g" \
     -e "s|{{PORT}}|$PORT|g" \
     -e "s|{{WORKERS}}|$WORKERS|g" \
     "$SRC_DIR/deploy/acore-webadmin.service.template" \
@@ -219,23 +240,82 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
 systemctl restart "$SERVICE_NAME"
 
-say "Waiting for the service to answer"
+say "Waiting for the app to answer on loopback"
 ok=0
 for _ in $(seq 1 20); do
-    if curl -fsS -o /dev/null "http://$BIND_ADDR:$PORT/healthz" 2>/dev/null; then ok=1; break; fi
+    if curl -fsS -o /dev/null "http://$APP_BIND_ADDR:$PORT/healthz" 2>/dev/null; then ok=1; break; fi
     sleep 1
 done
-
-echo
 if (( ok )); then
-    say "Installed and responding."
+    say "App is responding on loopback."
 else
-    warn "Service did not answer on http://$BIND_ADDR:$PORT/healthz"
+    warn "App did not answer on http://$APP_BIND_ADDR:$PORT/healthz"
     warn "Check: journalctl -u $SERVICE_NAME -n 50 --no-pager"
 fi
 
+# ------------------------------------------------------------------ TLS proxy
+
+proxy_ok=1
+if [[ "$ENABLE_TLS" == "1" ]]; then
+    if ! command -v nginx >/dev/null; then
+        say "Installing nginx (TLS reverse proxy)"
+        if command -v apt-get >/dev/null; then
+            apt-get update -qq
+            apt-get install -y -qq nginx
+        else
+            die "nginx is required for TLS. Install it, or re-run with ENABLE_TLS=0."
+        fi
+    fi
+
+    bash "$SRC_DIR/deploy/gen-selfsigned-cert.sh" \
+        "$TLS_CERT_PATH" "$TLS_KEY_PATH" 825 "$TLS_CN" "root:root"
+
+    say "Configuring nginx site '$SERVICE_NAME'"
+    NGINX_SITE="/etc/nginx/sites-available/$SERVICE_NAME.conf"
+    sed -e "s|{{BIND_ADDR}}|$BIND_ADDR|g" \
+        -e "s|{{HTTP_PORT}}|$HTTP_PORT|g" \
+        -e "s|{{HTTPS_PORT}}|$HTTPS_PORT|g" \
+        -e "s|{{TLS_CERT_PATH}}|$TLS_CERT_PATH|g" \
+        -e "s|{{TLS_KEY_PATH}}|$TLS_KEY_PATH|g" \
+        -e "s|{{APP_HOST}}|127.0.0.1|g" \
+        -e "s|{{APP_PORT}}|$PORT|g" \
+        "$SRC_DIR/deploy/nginx/acore-webadmin.conf.template" \
+        > "$NGINX_SITE"
+    mkdir -p /etc/nginx/sites-enabled
+    ln -sf "$NGINX_SITE" "/etc/nginx/sites-enabled/$SERVICE_NAME.conf"
+
+    if nginx -t 2>&1 | sed 's/^/    /'; then
+        systemctl enable nginx >/dev/null 2>&1 || true
+        systemctl reload nginx 2>/dev/null || systemctl restart nginx
+        say "Waiting for the TLS proxy to answer"
+        proxy_ok=0
+        for _ in $(seq 1 20); do
+            if curl -fsSk -o /dev/null "https://$BIND_ADDR:$HTTPS_PORT/healthz" 2>/dev/null; then
+                proxy_ok=1; break
+            fi
+            sleep 1
+        done
+        (( proxy_ok )) || warn "TLS proxy did not answer on https://$BIND_ADDR:$HTTPS_PORT/healthz"
+    else
+        proxy_ok=0
+        warn "nginx config test failed - TLS proxy not (re)loaded. App is still up on loopback."
+    fi
+fi
+
 echo
-echo "  URL       http://$BIND_ADDR:$PORT/"
+if (( ok )) && { [[ "$ENABLE_TLS" != "1" ]] || (( proxy_ok )); }; then
+    say "Installed and responding."
+else
+    warn "Installed, but something above did not come up cleanly - see warnings."
+fi
+
+echo
+if [[ "$ENABLE_TLS" == "1" ]]; then
+    echo "  URL       https://$BIND_ADDR:$HTTPS_PORT/"
+    echo "            (self-signed cert unless you already replaced $TLS_CERT_PATH)"
+else
+    echo "  URL       http://$BIND_ADDR:$PORT/  (no TLS - ENABLE_TLS=0)"
+fi
 echo "  Username  $ADMIN_USER"
 if [[ -n "$GENERATED_PASS" ]]; then
     echo "  Password  $GENERATED_PASS"
@@ -246,6 +326,9 @@ else
 fi
 echo
 if [[ "$BIND_ADDR" != "127.0.0.1" ]] && [[ "$BIND_ADDR" != "localhost" ]]; then
-    warn "Bound to $BIND_ADDR. This panel has no TLS and one shared admin login."
-    warn "Make sure that address is only reachable from a network you trust."
+    if [[ "$ENABLE_TLS" != "1" ]]; then
+        warn "Bound to $BIND_ADDR with no TLS. Traffic including the login form is plaintext."
+    fi
+    warn "Make sure $BIND_ADDR is only reachable from a network you trust - this installer"
+    warn "never binds a public interface, and you should not make it do so by hand."
 fi

@@ -1,0 +1,61 @@
+# TLS reverse proxy for acore-webadmin, rendered from this template by
+# deploy/install.sh (or by hand - see docs/CONFIGURATION.md "TLS").
+#
+# Terminates TLS here and forwards to the app over loopback only. The app
+# itself never binds anything but 127.0.0.1, so this proxy is the only way
+# to reach it from the network - which is exactly the point: one place to
+# enforce HTTPS, security headers and (if you add one) an IP allowlist.
+#
+# {{BIND_ADDR}} is the address end users reach - a tailnet/VPN IP, or
+# 127.0.0.1 for local-only use. It is never 0.0.0.0: this template does not
+# support binding a public interface, on purpose (see docs/SECURITY.md).
+
+server {
+    listen {{BIND_ADDR}}:{{HTTP_PORT}};
+    server_name _;
+    # Plain-HTTP is redirect-only. No app traffic is ever served here.
+    return 301 https://$host:{{HTTPS_PORT}}$request_uri;
+}
+
+server {
+    listen {{BIND_ADDR}}:{{HTTPS_PORT}} ssl;
+    http2 on;
+    server_name _;
+
+    # Stable, documented paths. Replace these two files with a CA-issued
+    # fullchain + key (same filenames, same permissions) and reload nginx -
+    # no other change and no rebuild needed. See docs/CONFIGURATION.md.
+    ssl_certificate     {{TLS_CERT_PATH}};
+    ssl_certificate_key {{TLS_KEY_PATH}};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5:!3DES;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:acorewebadmin_tls:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    client_max_body_size 2m;
+
+    # The app also sets its own security headers (HSTS, CSP, etc). Setting
+    # them here too would be redundant, so this proxy adds none beyond what
+    # a bare reverse proxy already implies - it is a pure TLS/L7 boundary,
+    # not a second place the same header logic has to be kept in sync.
+
+    location /healthz {
+        proxy_pass http://{{APP_HOST}}:{{APP_PORT}};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://{{APP_HOST}}:{{APP_PORT}};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_redirect off;
+        proxy_read_timeout 60s;
+    }
+}

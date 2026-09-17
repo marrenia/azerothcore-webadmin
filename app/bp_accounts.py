@@ -6,8 +6,8 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 import gamedata
 from core import (
     AUTH_DB, CHAR_DB, BOT_PREFIX, EXPANSIONS, GM_LEVELS, USERNAME_RE, CHARNAME_RE,
-    ban_state, execute, login_required, query, realm_stats, server_online,
-    soap, srp6_make, validate_credentials,
+    ROLE_ADMIN, ROLE_GAMEMASTER, ban_state, execute, query, realm_stats,
+    require_role, server_online, soap, srp6_make, validate_credentials,
 )
 from soap import SoapError
 
@@ -15,7 +15,7 @@ bp = Blueprint("accounts", __name__)
 
 
 @bp.route("/")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def index():
     search = (request.args.get("q") or "").strip()
     show_bots = request.args.get("bots") == "1"
@@ -50,7 +50,7 @@ def index():
 
 
 @bp.route("/online")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def online():
     show_bots = request.args.get("bots") == "1"
     sql = f"""
@@ -96,7 +96,7 @@ def online():
 
 
 @bp.route("/create", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def create():
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
@@ -130,7 +130,7 @@ def create():
 
 
 @bp.route("/account/<int:account_id>")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def detail(account_id):
     acc = query(
         f"""SELECT a.*, COALESCE(aa.gmlevel, 0) AS gmlevel
@@ -159,7 +159,7 @@ def detail(account_id):
 
 
 @bp.route("/account/<int:account_id>/password", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def set_password(account_id):
     acc = query(f"SELECT username FROM {AUTH_DB}.account WHERE id=%s", (account_id,), one=True)
     if not acc:
@@ -181,7 +181,7 @@ def set_password(account_id):
 
 
 @bp.route("/account/<int:account_id>/gmlevel", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def set_gmlevel(account_id):
     try:
         level = int(request.form.get("gmlevel", 0))
@@ -203,7 +203,7 @@ def set_gmlevel(account_id):
 
 
 @bp.route("/account/<int:account_id>/ban", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def ban(account_id):
     reason = (request.form.get("reason") or "Banned via web admin").strip()[:255]
     duration = request.form.get("duration", "permanent")
@@ -228,7 +228,7 @@ def ban(account_id):
 
 
 @bp.route("/account/<int:account_id>/unban", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def unban(account_id):
     n = execute(f"UPDATE {AUTH_DB}.account_banned SET active=0 WHERE id=%s AND active=1",
                 (account_id,))
@@ -237,7 +237,7 @@ def unban(account_id):
 
 
 @bp.route("/account/<int:account_id>/expansion", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def set_expansion(account_id):
     try:
         exp = int(request.form.get("expansion", 2))
@@ -253,7 +253,7 @@ def set_expansion(account_id):
 # ------------------------------------------------- destructive operations
 
 @bp.route("/character/<int:guid>/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def delete_character(guid):
     row = query(f"SELECT name, account FROM {CHAR_DB}.characters WHERE guid=%s",
                 (guid,), one=True)
@@ -283,7 +283,7 @@ def delete_character(guid):
 
 
 @bp.route("/account/<int:account_id>/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def delete(account_id):
     acc = query(f"SELECT username FROM {AUTH_DB}.account WHERE id=%s", (account_id,), one=True)
     if not acc:

@@ -8,7 +8,7 @@ import secrets
 import time
 
 import pymysql
-from flask import abort, g, redirect, request, session, url_for
+from flask import abort, flash, g, redirect, request, session, url_for
 
 from soap import SoapClient, SoapError
 
@@ -49,6 +49,24 @@ IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 EXPANSIONS = {0: "Classic", 1: "The Burning Crusade", 2: "Wrath of the Lich King"}
 GM_LEVELS = {0: "Player", 1: "Moderator", 2: "Game Master", 3: "Administrator"}
+
+# ---------------------------------------------------------------- roles
+#
+# Role is derived from acore_auth.account_access.gmlevel (RealmID=-1, "all
+# realms"), same numbering AzerothCore itself uses. No row, or gmlevel 0,
+# means PLAYER. The bootstrap WEB_ADMIN identity (from webadmin.env) is not a
+# database account at all; it is always ADMIN and carries no account_id.
+ROLE_PLAYER = 0
+ROLE_MODERATOR = 1
+ROLE_GAMEMASTER = 2
+ROLE_ADMIN = 3
+ALL_ROLES = (ROLE_PLAYER, ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
+STAFF_ROLES = (ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
+ROLE_NAMES = GM_LEVELS
+
+# How long a session may go without a request before it is treated as expired,
+# independent of the absolute PERMANENT_SESSION_LIFETIME.
+SESSION_IDLE_SECONDS = 30 * 60
 
 BOT_PREFIX = ADMIN_CFG.get("BOT_ACCOUNT_PREFIX", "rndbot").upper()
 
@@ -107,13 +125,120 @@ def execute(sql, args=()):
 
 # ---------------------------------------------------------------- auth
 
-def login_required(view):
-    @functools.wraps(view)
-    def wrapped(*a, **kw):
-        if not session.get("authed"):
-            return redirect(url_for("login", next=request.path))
-        return view(*a, **kw)
-    return wrapped
+def account_role(account_id):
+    """Role for a database account: gmlevel via account_access, RealmID=-1.
+
+    No row, or gmlevel 0, is PLAYER. Out-of-range values are clamped rather
+    than trusted verbatim, in case a hand-edited row holds something odd.
+    """
+    row = query(
+        f"SELECT gmlevel FROM {AUTH_DB}.account_access WHERE id=%s AND RealmID=-1",
+        (account_id,), one=True,
+    )
+    level = int(row["gmlevel"]) if row else 0
+    return max(ROLE_PLAYER, min(ROLE_ADMIN, level))
+
+
+def account_login_blocked(account_id):
+    """True when a database account must not be allowed to hold a session.
+
+    Covers both the login check and the per-request session-refresh check, so
+    a lock or ban applied mid-session takes effect on the account's very next
+    request rather than only at its next login.
+    """
+    row = query(f"SELECT locked FROM {AUTH_DB}.account WHERE id=%s", (account_id,), one=True)
+    if not row or row["locked"]:
+        return True
+    return ban_state(account_id) is not None
+
+
+def authenticate(username, password):
+    """Check credentials against the bootstrap admin, then a database account.
+
+    Returns a dict with account_id/role/username on success, or None. Always
+    does the same shape of work on both paths and never reveals which check
+    failed, so a caller cannot use response timing or content to tell "wrong
+    password" from "no such account".
+    """
+    username = (username or "")
+    password = (password or "")
+
+    if (hmac.compare_digest(username, ADMIN_CFG["WEB_ADMIN_USER"])
+            and hmac.compare_digest(password, ADMIN_CFG["WEB_ADMIN_PASS"])):
+        return {"account_id": None, "role": ROLE_ADMIN, "username": ADMIN_CFG["WEB_ADMIN_USER"]}
+
+    uname = username.strip().upper()
+    if not uname or not USERNAME_RE.match(uname) or len(uname) > MAX_USERNAME:
+        return None
+    acc = query(
+        f"SELECT id, username, salt, verifier FROM {AUTH_DB}.account WHERE username=%s",
+        (uname,), one=True,
+    )
+    if not acc or not acc["salt"] or not acc["verifier"]:
+        return None
+    _, computed = srp6_make(uname, password, salt=acc["salt"])
+    if not hmac.compare_digest(computed, bytes(acc["verifier"])):
+        return None
+    if account_login_blocked(acc["id"]):
+        return None
+    return {"account_id": acc["id"], "role": account_role(acc["id"]), "username": acc["username"]}
+
+
+def _session_still_valid():
+    """Per-request re-check: idle timeout, plus locked/banned for DB accounts.
+
+    Runs on every request through a protected route (require_role wraps all
+    of them), so a lock or ban applied to a logged-in account is enforced on
+    its very next click, not just at the next login.
+    """
+    now = int(time.time())
+    last_seen = session.get("_last_seen")
+    if last_seen is not None and now - int(last_seen) > SESSION_IDLE_SECONDS:
+        return False
+    session["_last_seen"] = now
+
+    account_id = session.get("account_id")
+    if account_id is None:
+        return True  # bootstrap WEB_ADMIN identity - no database row to revoke
+    if account_login_blocked(account_id):
+        return False
+    session["role"] = account_role(account_id)
+    return True
+
+
+def require_role(*roles):
+    """Default-deny route guard. Every protected route must carry this.
+
+    Unauthenticated requests are redirected to the login page (there is
+    nothing sensitive to leak by doing so). Authenticated requests whose role
+    is not in `roles` get a flat 403 - never a redirect, so a logged-in
+    low-privilege user cannot be bounced into a login loop that implies their
+    session is invalid.
+    """
+    allowed = set(roles)
+
+    def decorator(view):
+        @functools.wraps(view)
+        def wrapped(*a, **kw):
+            if not session.get("authed"):
+                return redirect(url_for("login", next=request.path))
+            if not _session_still_valid():
+                session.clear()
+                flash("Your session ended: sign in again.", "error")
+                return redirect(url_for("login"))
+            if session.get("role", ROLE_PLAYER) not in allowed:
+                abort(403)
+            return view(*a, **kw)
+        return wrapped
+    return decorator
+
+
+def current_account_id():
+    return session.get("account_id")
+
+
+def current_role():
+    return session.get("role", ROLE_PLAYER)
 
 
 def csrf_token():

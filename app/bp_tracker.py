@@ -7,8 +7,8 @@ from flask import (
 
 import tracker
 from core import (
-    AUTH_DB, CHAR_DB, BOT_PREFIX, CHARNAME_RE, login_required, query,
-    realm_stats, server_online, soap,
+    AUTH_DB, CHAR_DB, BOT_PREFIX, CHARNAME_RE, ROLE_ADMIN, ROLE_GAMEMASTER,
+    query, realm_stats, require_role, server_online, soap,
 )
 from soap import SoapError
 
@@ -33,7 +33,7 @@ def _char(guid):
 
 
 @bp.route("/tracker")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def index():
     search = (request.args.get("q") or "").strip()
     show_bots = request.args.get("bots") == "1"
@@ -70,7 +70,7 @@ def index():
 
 
 @bp.route("/tracker/<int:guid>")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def watch(guid):
     c = _char(guid)
     try:
@@ -120,7 +120,7 @@ def watch(guid):
 
 
 @bp.route("/tracker/<int:guid>/watch", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def toggle_watch(guid):
     c = _char(guid)
     if request.form.get("action") == "remove":
@@ -133,7 +133,7 @@ def toggle_watch(guid):
 
 
 @bp.route("/tracker/<int:guid>/sync", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def sync_positions(guid):
     """Force a world save so the stored coordinates become current."""
     try:
@@ -145,7 +145,7 @@ def sync_positions(guid):
 
 
 @bp.route("/tracker/prune", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def prune():
     n = tracker.prune(days=7)
     flash(f"Removed {n} sample(s) older than 7 days.", "ok")

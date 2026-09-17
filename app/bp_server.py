@@ -6,7 +6,8 @@ from flask import (
 )
 
 from core import (
-    AUTH_DB, CHAR_DB, login_required, query, realm_stats, server_info, soap,
+    AUTH_DB, CHAR_DB, ROLE_ADMIN, ROLE_GAMEMASTER, query, realm_stats,
+    require_role, server_info, soap,
 )
 from soap import SoapError
 
@@ -32,7 +33,7 @@ def _shutdown_style_command(kind, delay, reason):
 
 
 @bp.route("/server")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def dashboard():
     info = server_info()
     realm = query(f"SELECT * FROM {AUTH_DB}.realmlist LIMIT 1", one=True)
@@ -60,7 +61,7 @@ MOTD_LOCALES = ("enUS", "koKR", "frFR", "deDE", "zhCN", "zhWE", "esES", "esMX", 
 
 
 @bp.route("/server/motd", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def set_motd():
     motd = (request.form.get("motd") or "").strip()
     locale = request.form.get("locale", "enUS")
@@ -81,7 +82,7 @@ def set_motd():
 
 
 @bp.route("/server/broadcast", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def broadcast():
     text = (request.form.get("message") or "").strip()
     kind = request.form.get("kind", "announce")
@@ -102,7 +103,7 @@ def broadcast():
 
 
 @bp.route("/server/saveall", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def saveall():
     try:
         out = soap.command("saveall", timeout=60)
@@ -113,7 +114,7 @@ def saveall():
 
 
 @bp.route("/server/power", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def power():
     action = request.form.get("action", "")
     reason = (request.form.get("reason") or "").strip()[:120]
@@ -153,7 +154,7 @@ def power():
 
 
 @bp.route("/server/closed", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def set_closed():
     state = "on" if request.form.get("state") == "on" else "off"
     try:
@@ -168,7 +169,7 @@ def set_closed():
 # ---------------------------------------------------------------- console
 
 @bp.route("/console", methods=["GET", "POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def console():
     history = session.get("console_history", [])
 
@@ -206,7 +207,7 @@ def console():
 
 
 @bp.route("/console/clear", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def console_clear():
     session.pop("console_history", None)
     return redirect(url_for("server.console"))

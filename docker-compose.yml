@@ -1,0 +1,122 @@
+# Portable Compose deployment: the app plus a TLS-terminating nginx proxy.
+#
+# Does NOT bundle AzerothCore's own MySQL or worldserver - point `app` at your
+# existing ones via .env (copy .env.example first). Only `proxy` publishes
+# ports to the host; `app` is reachable solely over the internal network.
+#
+# Quick start:
+#   cp .env.example .env   # fill in your DB/SOAP/admin credentials
+#   docker compose up -d --build
+#
+# See docs/CONFIGURATION.md#docker--compose for certificate replacement,
+# secrets-file inputs, and production notes.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: acore-webadmin:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /run/acore-webadmin/config:mode=0700,uid=10001,gid=10001
+      - /tmp:mode=1777
+    volumes:
+      - acore_webadmin_state:/var/lib/acore-webadmin
+    environment:
+      WEB_DB_HOST: "${WEB_DB_HOST:?set WEB_DB_HOST in .env - your AzerothCore MySQL host, reachable from this container}"
+      WEB_DB_PORT: "${WEB_DB_PORT:-3306}"
+      WEB_DB_USER: "${WEB_DB_USER:?set WEB_DB_USER in .env}"
+      WEB_DB_PASS: "${WEB_DB_PASS:-}"
+      WEB_DB_PASS_FILE: "${WEB_DB_PASS_FILE:-}"
+      AUTH_DB: "${AUTH_DB:-acore_auth}"
+      CHAR_DB: "${CHAR_DB:-acore_characters}"
+      WORLD_DB: "${WORLD_DB:-acore_world}"
+      WEB_ADMIN_USER: "${WEB_ADMIN_USER:?set WEB_ADMIN_USER in .env}"
+      WEB_ADMIN_PASS: "${WEB_ADMIN_PASS:-}"
+      WEB_ADMIN_PASS_FILE: "${WEB_ADMIN_PASS_FILE:-}"
+      WEB_SECRET_KEY: "${WEB_SECRET_KEY:-}"
+      WEB_SECRET_KEY_FILE: "${WEB_SECRET_KEY_FILE:-}"
+      BOT_ACCOUNT_PREFIX: "${BOT_ACCOUNT_PREFIX:-rndbot}"
+      SOAP_HOST: "${SOAP_HOST:?set SOAP_HOST in .env - your worldserver, reachable from this container}"
+      SOAP_PORT: "${SOAP_PORT:-7878}"
+      SOAP_USER: "${SOAP_USER:-}"
+      SOAP_USER_FILE: "${SOAP_USER_FILE:-}"
+      SOAP_PASS: "${SOAP_PASS:-}"
+      SOAP_PASS_FILE: "${SOAP_PASS_FILE:-}"
+      ACORE_WEBADMIN_BEHIND_TLS_PROXY: "1"
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/livez', timeout=3).status in (200,503) else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - internal
+
+  proxy:
+    build:
+      context: .
+      dockerfile: docker/proxy/Dockerfile
+    image: acore-webadmin-proxy:local
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      # TLS_BIND_ADDR should be a private/VPN address, exactly like BIND_ADDR
+      # in the bare-metal installer - never 0.0.0.0 in a real deployment.
+      - "${TLS_BIND_ADDR:-127.0.0.1}:${HTTPS_PORT:-443}:8443"
+      - "${TLS_BIND_ADDR:-127.0.0.1}:${HTTP_PORT:-80}:8080"
+    environment:
+      APP_HOST: app
+      APP_PORT: "8090"
+      HTTPS_PORT: "${HTTPS_PORT:-443}"
+      TLS_CERT_PATH: /certs/fullchain.pem
+      TLS_KEY_PATH: /certs/privkey.pem
+      TLS_CN: "${TLS_CN:-localhost}"
+    volumes:
+      - acore_webadmin_certs:/certs
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d:mode=0755
+      - /var/cache/nginx:mode=0755
+      - /var/run:mode=0755
+      - /tmp:mode=1777
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "--no-check-certificate", "https://127.0.0.1:8443/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # nginx's own entrypoint chowns /var/cache/nginx et al. as root, then
+      # the master process setuid/setgids its workers to the unprivileged
+      # "nginx" user. Both internal ports (8080/8443) are unprivileged, so
+      # NET_BIND_SERVICE is deliberately not added.
+      - CHOWN
+      - SETUID
+      - SETGID
+    networks:
+      - internal
+
+networks:
+  internal:
+    # No external access declared: app and proxy can reach each other and the
+    # (external) database/SOAP hosts, but nothing on this network is
+    # published to the host except proxy's two mapped ports above.
+    driver: bridge
+
+volumes:
+  acore_webadmin_state:
+  acore_webadmin_certs:

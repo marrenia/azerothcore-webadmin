@@ -2,8 +2,9 @@
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
 from core import (
-    AUTH_DB, CHAR_DB, BOT_PREFIX, CHARNAME_RE, login_required, query,
-    realm_stats, safe_arg, server_online, soap, WORLD_DB,
+    AUTH_DB, CHAR_DB, BOT_PREFIX, CHARNAME_RE, ROLE_ADMIN, ROLE_GAMEMASTER,
+    ROLE_MODERATOR, query, realm_stats, require_role, safe_arg, server_online,
+    soap, WORLD_DB,
 )
 from soap import SoapError
 
@@ -28,7 +29,7 @@ def _char_or_404(guid):
 
 
 @bp.route("/characters")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def index():
     search = (request.args.get("q") or "").strip()
     show_bots = request.args.get("bots") == "1"
@@ -58,7 +59,7 @@ def index():
 
 
 @bp.route("/character/<int:guid>")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def detail(guid):
     c = _char_or_404(guid)
     teles = query(f"SELECT name FROM {WORLD_DB}.game_tele ORDER BY name LIMIT 2000")
@@ -67,7 +68,7 @@ def detail(guid):
 
 
 @bp.route("/character/<int:guid>/teleport", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def teleport(guid):
     c = _char_or_404(guid)
     dest = (request.form.get("destination") or "").strip()
@@ -87,7 +88,7 @@ def teleport(guid):
 
 
 @bp.route("/character/<int:guid>/item", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def send_item(guid):
     c = _char_or_404(guid)
     try:
@@ -114,7 +115,7 @@ def send_item(guid):
 
 
 @bp.route("/character/<int:guid>/combatstop", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def combatstop(guid):
     c = _char_or_404(guid)
     if not CHARNAME_RE.match(c["name"]):
@@ -136,7 +137,7 @@ def _run(guid, cmd, ok_msg):
 
 
 @bp.route("/character/<int:guid>/level", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def set_level(guid):
     c = _char_or_404(guid)
     try:
@@ -155,7 +156,7 @@ def set_level(guid):
 
 
 @bp.route("/character/<int:guid>/rename", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def rename(guid):
     c = _char_or_404(guid)
     if not CHARNAME_RE.match(c["name"]):
@@ -166,7 +167,7 @@ def rename(guid):
 
 
 @bp.route("/character/<int:guid>/customize", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def customize(guid):
     c = _char_or_404(guid)
     kind = request.form.get("kind", "customize")
@@ -182,7 +183,7 @@ def customize(guid):
 
 
 @bp.route("/character/<int:guid>/kick", methods=["POST"])
-@login_required
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
 def kick(guid):
     c = _char_or_404(guid)
     if not c["online"]:
@@ -197,7 +198,7 @@ def kick(guid):
 
 
 @bp.route("/character/<int:guid>/mail", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def send_mail(guid):
     c = _char_or_404(guid)
     subject = (request.form.get("subject") or "").strip()
@@ -242,7 +243,7 @@ def in_copper_limit():
 # ---------------------------------------------------------------- deleted
 
 @bp.route("/deleted")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def deleted():
     rows = query(
         f"""SELECT c.guid, c.deleteInfos_Name AS name, c.deleteInfos_Account AS account,
@@ -258,7 +259,7 @@ def deleted():
 
 
 @bp.route("/deleted/<int:guid>/restore", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def restore(guid):
     row = query(
         f"""SELECT deleteInfos_Name AS name FROM {CHAR_DB}.characters
@@ -285,7 +286,7 @@ def restore(guid):
 
 
 @bp.route("/deleted/<int:guid>/purge", methods=["POST"])
-@login_required
+@require_role(ROLE_ADMIN)
 def purge(guid):
     row = query(
         f"""SELECT deleteInfos_Name AS name FROM {CHAR_DB}.characters

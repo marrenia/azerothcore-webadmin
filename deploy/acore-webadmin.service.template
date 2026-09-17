@@ -10,10 +10,11 @@ User={{SERVICE_USER}}
 Group={{SERVICE_USER}}
 WorkingDirectory={{APP_DIR}}
 
-# This panel has no TLS and a single shared admin login. BIND_ADDR should be a
-# loopback or private (VPN/tailnet) address - never a public interface.
+# The app binds loopback only. A TLS-terminating reverse proxy (installed by
+# deploy/install.sh unless ENABLE_TLS=0) is the only thing that ever listens
+# on a tailnet/VPN address - never a public interface either way.
 ExecStart=/usr/bin/python3 -m gunicorn \
-    --bind {{BIND_ADDR}}:{{PORT}} \
+    --bind {{APP_BIND_ADDR}}:{{PORT}} \
     --workers {{WORKERS}} \
     --threads 4 \
     --timeout 30 \
@@ -27,6 +28,7 @@ RestartSec=10s
 
 Environment=ACORE_WEBADMIN_CONFIG_DIR={{CONFIG_DIR}}
 Environment=ACORE_STATE_DIR=/var/lib/{{STATE_DIR_NAME}}
+Environment=ACORE_WEBADMIN_BEHIND_TLS_PROXY={{BEHIND_TLS_PROXY}}
 StateDirectory={{STATE_DIR_NAME}}
 StateDirectoryMode=0750
 

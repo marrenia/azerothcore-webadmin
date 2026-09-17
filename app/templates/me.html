@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}My account{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>
+    {{ acc.username }}
+    {% if acc.ban %}<span class="tag banned">Banned</span>
+    {% elif acc.online %}<span class="tag online">Online</span>
+    {% else %}<span class="tag offline">Offline</span>{% endif %}
+  </h1>
+  <p>Account #{{ acc.id }} &mdash; your own account details.</p>
+</div>
+
+{% if acc.ban %}
+  <div class="flash error">
+    <strong>Banned</strong> by {{ acc.ban.bannedby }} &mdash; {{ acc.ban.banreason }}
+    {% if acc.ban.permanent %}(permanent){% else %}(until {{ acc.ban.unbandate|ts }}){% endif %}
+  </div>
+{% endif %}
+{% if acc.muted %}
+  <div class="flash error">Your chat is muted until {{ acc.mutetime|ts }}.</div>
+{% endif %}
+{% if acc.locked %}
+  <div class="flash error">This account is locked. Contact a realm administrator.</div>
+{% endif %}
+
+<div class="card">
+  <h2>Overview</h2>
+  <div class="card-body">
+    <dl class="props">
+      <dt>Email</dt><dd>{{ acc.email or '—' }}</dd>
+      <dt>Expansion</dt><dd>{{ EXPANSIONS.get(acc.expansion, acc.expansion) }}</dd>
+      <dt>Created</dt><dd class="mono">{{ acc.joindate or '—' }}</dd>
+      <dt>Last login</dt><dd class="mono">{{ acc.last_login or 'never' }}</dd>
+      <dt>Last IP</dt><dd class="mono">{{ acc.last_ip }}</dd>
+      <dt>Failed logins</dt><dd class="mono">{{ acc.failed_logins }}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Change password</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('self.change_password') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row" style="margin-bottom:10px">
+        <div class="field" style="flex:1">
+          <label for="cp">Current password</label>
+          <input id="cp" name="current_password" type="password" maxlength="16" required>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="np">New password</label>
+          <input id="np" name="new_password" type="password" maxlength="16" required>
+        </div>
+        <button>Update</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-bottom:0">
+      Generates a fresh random salt and verifier, the same way account creation
+      does. You will need the new password next time you sign in.
+    </p>
+  </div>
+</div>
+
+<div class="row" style="gap:12px">
+  <a href="{{ url_for('self.characters') }}"><button type="button">My characters</button></a>
+  <a href="{{ url_for('self.tickets') }}"><button type="button">My tickets</button></a>
+</div>
+{% endblock %}

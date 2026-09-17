@@ -5,7 +5,15 @@
   <h2>Error {{ code }}</h2>
   <div class="card-body">
     <p style="margin-top:0">{{ message }}</p>
-    <a href="{{ url_for('accounts.index') }}">&larr; Back to accounts</a>
+    {% if role in (ROLE_GAMEMASTER, ROLE_ADMIN) %}
+      <a href="{{ url_for('accounts.index') }}">&larr; Back to accounts</a>
+    {% elif role == ROLE_MODERATOR %}
+      <a href="{{ url_for('mod.tickets') }}">&larr; Back to tickets</a>
+    {% elif role == ROLE_PLAYER %}
+      <a href="{{ url_for('self.index') }}">&larr; Back to my account</a>
+    {% else %}
+      <a href="{{ url_for('login') }}">&larr; Sign in</a>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

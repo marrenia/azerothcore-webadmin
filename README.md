@@ -2,9 +2,29 @@
 
 A web admin panel for a private [AzerothCore](https://www.azerothcore.org/) 3.3.5 realm:
 accounts, characters, moderation, a live player tracker, world editing, realm list
-editing, and a GM command console.
+editing, a GM command console, and role-based access down to a read-mostly
+self-service view for ordinary players.
 
-Flask + gunicorn + MySQL. No build step, no JavaScript framework, no external assets.
+Flask + gunicorn + MySQL, TLS-terminated by a bundled nginx reverse proxy. No
+build step, no JavaScript framework, no external assets. Runnable directly on a
+host via `deploy/install.sh`, or as a portable Docker Compose stack - see
+[Install](#install) below.
+
+## Roles
+
+Login now works with any `acore_auth` database account, not just a single shared
+admin. Role comes straight from AzerothCore's own `gmlevel`:
+
+| gmlevel | Role | Can do |
+|---|---|---|
+| 0 / none | **PLAYER** | View their own account, ban/mute state, characters (incl. deleted) and ticket history; change their own password. No SOAP, no access to anyone else's data. |
+| 1 | **MODERATOR** | Ticket queue (list/comment/close), mute/unmute, kick. Nothing else. |
+| 2 | **GAMEMASTER** | Everything below except granting GM levels and the handful of ADMIN-only routes (account/character delete & restore, realm list, console, server power). |
+| 3 | **ADMIN** | Everything, unchanged from the original single-admin panel. |
+
+The bootstrap `WEB_ADMIN` login from `webadmin.env` is always ADMIN and exists
+independent of any database account, so the panel is administrable from a clean
+install. Full detail: [docs/SECURITY.md](docs/SECURITY.md#roles).
 
 ---
 
@@ -34,34 +54,41 @@ If you need something you can trust with an exposed, multi-user, or commercial
 realm, this is not that. Use it as a starting point, or read it and steal the parts
 that are useful.
 
-### 2. It has only ever been tested inside a private tailnet
+### 2. It was developed and tested inside a private tailnet
 
-The one and only deployment this has run on is a single-user private realm, bound to
-a [Tailscale](https://tailscale.com/) address, on a host where the public firewall
-drops everything except WireGuard and tailnet SSH.
+The one and only live deployment this has run on is bound to a
+[Tailscale](https://tailscale.com/) address, on a host where the public firewall
+drops everything except WireGuard/tailnet traffic and tailnet SSH.
 
-**It has never been exposed to the public internet, and it is not built to be.**
+**It has never been exposed to the public internet.** It is now closer to
+public-internet-ready than the original single-admin build - TLS, role-based
+access, ownership-scoped self-service, security headers and coarse rate limiting
+are all now present - but going public is still a deliberate step this repo does
+not take for you. Read
+[docs/SECURITY.md § Public-internet deployment prerequisites](docs/SECURITY.md#public-internet-deployment-prerequisites)
+before you consider it.
 
-Concretely, it assumes a trusted network and therefore does *not* have:
+What changed and what's still true:
 
-- **TLS.** It serves plain HTTP. `SESSION_COOKIE_SECURE` is not set, because there
-  is no HTTPS to set it for. Session cookies and your admin password cross the
-  network in cleartext — which is acceptable over WireGuard and *only* over
-  WireGuard.
-- **Multi-user accounts, roles, or an audit trail of who did what.** There is one
-  admin login. Everyone who has it can do everything.
-- **Meaningful brute-force protection.** There is an in-process login lockout, but
-  it is per-gunicorn-worker and resets on restart. It is a speed bump, not a defence.
-- **CSRF protection beyond a session-bound token**, no rate limiting on actions, and
-  no protection against a hostile client on the same trusted network.
+- **TLS is now bundled.** `deploy/install.sh` installs and configures an nginx
+  reverse proxy in front of the app by default (`ENABLE_TLS=1`), generating a
+  self-signed certificate as a zero-configuration fallback and redirecting HTTP
+  to HTTPS. The app itself binds loopback only, always. See
+  [docs/CONFIGURATION.md](docs/CONFIGURATION.md#tls) for how to drop in a
+  CA-issued certificate.
+- **Roles exist now** — see the table above — but there is still no full audit
+  trail of who did what beyond world-edit log lines and the systemd journal.
+- **Login lockout** is per-IP and per-username, bounded in memory, but still
+  per-process and resets on restart. It is a speed bump, not a defence against a
+  determined distributed attempt.
+- **CSRF** is enforced globally, with a strict content-type check alongside it.
 
-The panel binds to whatever address you configure. **Configure it to a private one.**
-If you put this on `0.0.0.0` with a public IP, you are handing the internet a login
-form that fronts your game database and a GM command console. Don't.
-
-A reasonable deployment is: Tailscale/WireGuard/VPN address, or `127.0.0.1` behind an
-authenticating reverse proxy that terminates TLS. The installer defaults to
-`127.0.0.1` for exactly this reason.
+The panel — and the TLS proxy in front of it — bind to whatever address you
+configure. **Configure it to a private one.** If you put either on a public
+interface, you are handing the internet a login form that fronts your game
+database and, for ADMIN, a GM command console. Don't. The installer defaults to
+`127.0.0.1` for exactly this reason, and nothing in this repo opens a firewall
+port for you.
 
 ---
 
@@ -73,13 +100,15 @@ authenticating reverse proxy that terminates TLS. The installer defaults to
 | **Characters** | Browse, inspect, rename, set level, kick, teleport, send mail/items/money, force combat stop, restore deleted characters. |
 | **Online** | Who is connected right now. |
 | **Tracker** | Periodic `pinfo` sampling into SQLite, with per-character history and inferred activity. |
-| **Moderation** | Account bans, character bans, IP bans, mutes — with reasons and durations. |
-| **World** | Guilds, arena teams, and data reloads. |
-| **Customize** | Edit creature and gameobject templates, spawns, vendors and teleport points. |
-| **Realms** | Edit the realm list: address, port, type, region, flags, who may log in. |
-| **Tickets** | Open GM tickets. |
-| **Server** | Live status, MOTD, broadcasts, save-all, realm gate, restart/shutdown. |
-| **Console** | Arbitrary GM commands over SOAP, with a deny list for the genuinely destructive ones. |
+| **Moderation** | Account bans, character bans, IP bans, mutes — with reasons and durations. GAMEMASTER+. |
+| **Mute / Kick** | Mute, unmute, kick — the moderation subset MODERATOR can reach. |
+| **World** | Guilds, arena teams, and data reloads. GAMEMASTER+. |
+| **Customize** | Edit creature and gameobject templates, spawns, vendors and teleport points. GAMEMASTER+. |
+| **Realms** | Edit the realm list: address, port, type, region, flags, who may log in. ADMIN only. |
+| **Tickets** | Open GM tickets: list, comment, close. MODERATOR+. |
+| **Server** | Live status, MOTD, broadcasts, save-all, realm gate. GAMEMASTER+; restart/shutdown is ADMIN only. |
+| **Console** | Arbitrary GM commands over SOAP, with a deny list for the genuinely destructive ones. ADMIN only. |
+| **My Account** | PLAYER (and everyone else's own account): own details, ban/mute state, password change, own characters including deleted, own tickets and GM responses. |
 
 ## How it's put together
 
@@ -109,11 +138,15 @@ the UI says so instead of showing you a stale number dressed up as a live one.
 
 - A working AzerothCore 3.3.5 realm with its databases in MySQL/MariaDB
 - Python 3.9+, `python3-flask`, `python3-pymysql`, `python3-gunicorn`
+- `nginx` and `openssl` for the bundled TLS proxy (installed automatically by
+  `deploy/install.sh` unless `ENABLE_TLS=0`)
 - `SOAP.Enabled = 1` in `worldserver.conf` (loopback only) for anything that issues
   a GM command
-- systemd, if you want the supplied unit
+- systemd, if you want the supplied unit — or Docker + Compose, see below
 
 ## Install
+
+### Directly on a host (systemd)
 
 ```bash
 git clone https://github.com/marrenia/azerothcore-webadmin.git
@@ -123,12 +156,28 @@ sudo ./deploy/install.sh
 
 The installer creates a service user, generates the MySQL account and grants,
 writes credential files with a generated admin password, installs a systemd unit,
-and prints the URL. Full walkthrough and every configurable value:
-**[docs/INSTALL.md](docs/INSTALL.md)**.
+sets up the TLS proxy with a self-signed certificate, and prints the URL. Full
+walkthrough and every configurable value: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 Nothing in the code is specific to the machine it was written on — paths, bind
 address, database names and DB host are all configuration. See
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+### Docker / Compose
+
+```bash
+git clone https://github.com/marrenia/azerothcore-webadmin.git
+cd azerothcore-webadmin
+cp .env.example .env   # edit: point at your existing AzerothCore MySQL + SOAP
+docker compose up -d --build
+```
+
+Builds the app image (non-root, multi-stage, pinned base) and runs it behind the
+same nginx TLS proxy config used by the host installer, on an internal Compose
+network — only the proxy's ports are published to the host. AzerothCore's own
+databases and worldserver are **not** bundled; point `.env` at your existing
+ones. Full detail, including certificate replacement and production notes:
+**[docs/CONFIGURATION.md](docs/CONFIGURATION.md#docker--compose)**.
 
 ## Documentation
 

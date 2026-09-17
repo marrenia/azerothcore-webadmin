@@ -4,8 +4,9 @@ import time
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
 from core import (
-    AUTH_DB, CHAR_DB, CHARNAME_RE, IP_RE, USERNAME_RE, login_required, query,
-    realm_stats, safe_arg, server_online, soap,
+    AUTH_DB, CHAR_DB, CHARNAME_RE, IP_RE, ROLE_ADMIN, ROLE_GAMEMASTER,
+    ROLE_MODERATOR, USERNAME_RE, query, realm_stats, require_role, safe_arg,
+    server_online, soap,
 )
 from soap import SoapError
 
@@ -21,7 +22,7 @@ DURATIONS = {
 
 
 @bp.route("/moderation")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def index():
     now = int(time.time())
     account_bans = query(
@@ -55,12 +56,30 @@ def index():
                            world_up=server_online(), now=now, nav="moderation")
 
 
+@bp.route("/moderation/mutes")
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
+def mutes():
+    """Mute-only view for MODERATOR: no ban data, just the mute/unmute tool.
+
+    GAMEMASTER and ADMIN also have the combined /moderation dashboard; this
+    exists so MODERATOR has a page to land on that does not expose ban rosters
+    they have no authority to act on.
+    """
+    now = int(time.time())
+    muted = query(
+        f"""SELECT id, username, mutetime, mutereason, muteby
+            FROM {AUTH_DB}.account WHERE mutetime > %s
+            ORDER BY mutetime DESC LIMIT 100""", (now,))
+    return render_template("mutes.html", muted=muted, now=now,
+                           world_up=server_online(), nav="mutes")
+
+
 def _duration_arg(key):
     return DURATIONS.get(key, DURATIONS["permanent"])[0]
 
 
 @bp.route("/moderation/ban", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def ban():
     kind = request.form.get("kind", "")
     target = (request.form.get("target") or "").strip()
@@ -95,7 +114,7 @@ def ban():
 
 
 @bp.route("/moderation/unban", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def unban():
     kind = request.form.get("kind", "")
     target = (request.form.get("target") or "").strip()
@@ -115,7 +134,7 @@ def unban():
 
 
 @bp.route("/moderation/mute", methods=["POST"])
-@login_required
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
 def mute():
     target = (request.form.get("target") or "").strip()
     reason = (request.form.get("reason") or "Muted via web admin").strip()[:200]
@@ -126,37 +145,37 @@ def mute():
     minutes = max(1, min(minutes, 60 * 24 * 30))
     if not CHARNAME_RE.match(target):
         flash("Mute takes a character name.", "error")
-        return redirect(url_for("mod.index"))
+        return redirect(url_for("mod.mutes"))
     if not safe_arg(reason):
         flash("Reason cannot contain double quotes or line breaks.", "error")
-        return redirect(url_for("mod.index"))
+        return redirect(url_for("mod.mutes"))
     try:
         out = soap.command(f'mute {target} {minutes} "{reason}"')
         flash(f"Muted {target} for {minutes} minutes. {out}".strip(), "ok")
     except SoapError as exc:
         flash(f"Mute failed: {exc}", "error")
-    return redirect(url_for("mod.index"))
+    return redirect(url_for("mod.mutes"))
 
 
 @bp.route("/moderation/unmute", methods=["POST"])
-@login_required
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
 def unmute():
     target = (request.form.get("target") or "").strip()
     if not CHARNAME_RE.match(target):
         flash("Unmute takes a character name.", "error")
-        return redirect(url_for("mod.index"))
+        return redirect(url_for("mod.mutes"))
     try:
         out = soap.command(f"unmute {target}")
         flash(f"Unmuted {target}. {out}".strip(), "ok")
     except SoapError as exc:
         flash(f"Unmute failed: {exc}", "error")
-    return redirect(url_for("mod.index"))
+    return redirect(url_for("mod.mutes"))
 
 
 # ---------------------------------------------------------------- tickets
 
 @bp.route("/tickets")
-@login_required
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
 def tickets():
     show_closed = request.args.get("closed") == "1"
     sql = f"""
@@ -177,7 +196,7 @@ def tickets():
 
 
 @bp.route("/tickets/<int:ticket_id>/close", methods=["POST"])
-@login_required
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
 def close_ticket(ticket_id):
     try:
         out = soap.command(f"ticket close {ticket_id}")
@@ -188,7 +207,7 @@ def close_ticket(ticket_id):
 
 
 @bp.route("/tickets/<int:ticket_id>/comment", methods=["POST"])
-@login_required
+@require_role(ROLE_MODERATOR, ROLE_GAMEMASTER, ROLE_ADMIN)
 def comment_ticket(ticket_id):
     text = (request.form.get("comment") or "").strip()[:400]
     if not text:

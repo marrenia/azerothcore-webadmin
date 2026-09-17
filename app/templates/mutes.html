@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Mute a player{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <h1>Mute / Kick</h1>
+  <p>Moderator tools: mute and unmute chat, no ban authority.</p>
+</div>
+
+{% if not world_up %}
+  <div class="flash error">
+    The worldserver is not responding. Mutes cannot be applied or lifted until
+    it is back.
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>Mute a character</h2>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('mod.mute') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row" style="margin-bottom:10px">
+        <div class="field" style="flex:1">
+          <label for="mt">Character</label>
+          <input id="mt" name="target" required>
+        </div>
+        <div class="field">
+          <label for="mm">Minutes</label>
+          <input id="mm" name="minutes" type="number" min="1" max="43200"
+                 value="60" style="width:110px">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="mr">Reason</label>
+          <input id="mr" name="reason" maxlength="200">
+        </div>
+        <button {% if not world_up %}disabled{% endif %}>Mute</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('mod.unmute') }}" style="margin-top:12px">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div class="row">
+        <div class="field" style="flex:1">
+          <label for="umt">Unmute character</label>
+          <input id="umt" name="target" required>
+        </div>
+        <button {% if not world_up %}disabled{% endif %}>Unmute</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Muted accounts <span class="count">&mdash; {{ muted|length }}</span></h2>
+  {% if muted %}
+  <table>
+    <thead><tr><th>Account</th><th>Reason</th><th>By</th><th>Until</th></tr></thead>
+    <tbody>
+      {% for m in muted %}
+      <tr>
+        <td class="mono">{{ m.username }}</td>
+        <td>{{ m.mutereason or '—' }}</td>
+        <td class="muted">{{ m.muteby or '—' }}</td>
+        <td class="mono muted">{{ m.mutetime|ts }} <span class="faint">({{ m.mutetime|until }})</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">Nobody is muted.</div>
+  {% endif %}
+</div>
+{% endblock %}

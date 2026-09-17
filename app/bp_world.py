@@ -8,8 +8,8 @@ from a web panel at all.
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from core import (
-    AUTH_DB, CHAR_DB, CHARNAME_RE, login_required, query, realm_stats,
-    safe_arg, server_online, soap, WORLD_DB,
+    AUTH_DB, CHAR_DB, CHARNAME_RE, ROLE_ADMIN, ROLE_GAMEMASTER, query,
+    realm_stats, require_role, safe_arg, server_online, soap, WORLD_DB,
 )
 from soap import SoapError
 
@@ -35,7 +35,7 @@ GUILD_RANKS = {0: "Guild Master", 1: "Officer", 2: "Veteran", 3: "Member", 4: "I
 
 
 @bp.route("/world")
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def index():
     guilds = query(
         f"""SELECT g.guildid, g.name, g.createdate,
@@ -61,7 +61,7 @@ def _back(result, ok_msg):
 # ---------------------------------------------------------------- guilds
 
 @bp.route("/world/guild/create", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def guild_create():
     leader = (request.form.get("leader") or "").strip()
     name = (request.form.get("name") or "").strip()
@@ -80,7 +80,7 @@ def guild_create():
 
 
 @bp.route("/world/guild/rename", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def guild_rename():
     old = (request.form.get("old") or "").strip()
     new = (request.form.get("new") or "").strip()
@@ -96,7 +96,7 @@ def guild_rename():
 
 
 @bp.route("/world/guild/delete", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def guild_delete():
     name = (request.form.get("name") or "").strip()
     if (request.form.get("confirm") or "").strip() != name:
@@ -114,7 +114,7 @@ def guild_delete():
 
 
 @bp.route("/world/guild/member", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def guild_member():
     action = request.form.get("action", "invite")
     player = (request.form.get("player") or "").strip()
@@ -154,7 +154,7 @@ def guild_member():
 # ---------------------------------------------------------------- arena
 
 @bp.route("/world/arena", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def arena():
     action = request.form.get("action", "info")
     name = (request.form.get("name") or "").strip()
@@ -203,7 +203,7 @@ def arena():
 # ---------------------------------------------------------------- reload
 
 @bp.route("/world/reload", methods=["POST"])
-@login_required
+@require_role(ROLE_GAMEMASTER, ROLE_ADMIN)
 def reload_table():
     target = (request.form.get("target") or "").strip()
     allowed = {t for t, _ in COMMON_RELOADS}

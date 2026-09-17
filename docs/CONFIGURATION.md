@@ -19,6 +19,7 @@ Set in the systemd unit, not in the env files.
 |---|---|---|
 | `ACORE_WEBADMIN_CONFIG_DIR` | `/etc/acore` | Where the three files below live. Change it to run two panels against two realms on one host. |
 | `ACORE_STATE_DIR` | `/var/lib/acore-webadmin` | Writable directory for the tracker's SQLite database. Must match `StateDirectory`. |
+| `ACORE_WEBADMIN_BEHIND_TLS_PROXY` | `0` | Set to `1` when a TLS-terminating reverse proxy sits in front of the app (the installer sets this for you when `ENABLE_TLS=1`). Turns on `SESSION_COOKIE_SECURE`, `Strict-Transport-Security`, and trusting one hop of `X-Forwarded-For`/`-Proto` from the proxy. Never set this without an actual proxy in front — with nothing to strip forged headers, the app would trust whatever the client sent. |
 
 ## `webdb.env` — database
 
@@ -86,6 +87,75 @@ SOAP_PASS=change-me
 Keep SOAP on loopback. It is an unauthenticated-by-network, HTTP-Basic-authenticated
 remote command interface with full GM authority.
 
+## TLS
+
+`deploy/install.sh` puts nginx in front of the app and terminates TLS there,
+unless you pass `ENABLE_TLS=0`. The app itself always binds `127.0.0.1` only,
+whether or not TLS is on — there is never a direct route to it from `BIND_ADDR`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENABLE_TLS` | `1` | `0` restores the old direct-bind, no-proxy behaviour: the app binds `BIND_ADDR:PORT` itself, plaintext. |
+| `HTTPS_PORT` | `443` | Where nginx listens for HTTPS, on `BIND_ADDR`. |
+| `HTTP_PORT` | `80` | Where nginx listens for plain HTTP, on `BIND_ADDR` — redirect-only, 301 to HTTPS. |
+| `TLS_CERT_PATH` | `$CONFIG_DIR/tls/fullchain.pem` | Certificate (+ chain) nginx serves. |
+| `TLS_KEY_PATH` | `$CONFIG_DIR/tls/privkey.pem` | Its private key. Written `root:root 0600`. |
+| `TLS_CN` | `$BIND_ADDR` | Common Name / SAN used when generating the self-signed fallback. |
+
+### Replacing the self-signed certificate
+
+The installer generates a self-signed cert at `TLS_CERT_PATH`/`TLS_KEY_PATH` only
+if neither file already exists — it never overwrites a certificate you installed.
+To install a CA-issued (or otherwise externally obtained) certificate:
+
+```bash
+sudo install -o root -g root -m 644 /path/to/your/fullchain.pem "$TLS_CERT_PATH"
+sudo install -o root -g root -m 600 /path/to/your/privkey.pem  "$TLS_KEY_PATH"
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+No source change, no rebuild, no restart of `acore-webadmin` itself — only nginx
+needs to reload, and `nginx -t` validates the config before it touches the
+running service. Renewal (e.g. via certbot/ACME on a real domain) is the same
+two `install` commands plus a reload, on whatever schedule your CA requires; this
+repo does not automate certificate issuance or renewal.
+
+### Running without TLS
+
+`ENABLE_TLS=0` is supported for a purely loopback, single-machine setup where a
+proxy adds nothing (e.g. `BIND_ADDR=127.0.0.1` with SSH port-forwarding for
+remote access). It restores the original direct-bind behaviour: the app binds
+`BIND_ADDR:PORT` itself, in plaintext, and `ACORE_WEBADMIN_BEHIND_TLS_PROXY` stays
+`0`. Do not use this with a non-loopback `BIND_ADDR`.
+
+## Docker / Compose
+
+`Dockerfile` and `docker-compose.yml` at the repo root are a portable
+alternative to the systemd installer, for running the app anywhere Docker runs.
+They do **not** bundle AzerothCore's own MySQL or worldserver — point them at
+your existing ones via `.env` (copy `.env.example` to start).
+
+| Variable (in `.env`) | Purpose |
+|---|---|
+| `WEB_DB_HOST`, `WEB_DB_PORT`, `WEB_DB_USER`, `WEB_DB_PASS` | Same meaning as `webdb.env` above. `WEB_DB_HOST` almost always needs to be your Docker host's LAN/VPN address, not `127.0.0.1` — `127.0.0.1` inside the container is the container itself. |
+| `AUTH_DB`, `CHAR_DB`, `WORLD_DB` | Same as above. |
+| `WEB_ADMIN_USER`, `WEB_ADMIN_PASS`, `WEB_SECRET_KEY` | Same as `webadmin.env`. There is no generated default here — the container refuses to start without them (see `app.py`'s startup check on `WEB_SECRET_KEY`). |
+| `SOAP_HOST`, `SOAP_PORT`, `SOAP_USER`, `SOAP_PASS` | Same as `soap.env`. `SOAP_HOST` has the same "not 127.0.0.1" caveat as `WEB_DB_HOST`. |
+| `TLS_BIND_ADDR` | Host interface the proxy container publishes `HTTPS_PORT`/`HTTP_PORT` on. Keep this a private/VPN address, exactly as with the systemd install — Compose does not change that guidance. |
+| `HTTPS_PORT`, `HTTP_PORT` | Same meaning as the installer variables above. |
+
+Certificates: bind-mount a host directory to `/certs` in the `proxy` service
+(see the `volumes:` entry in `docker-compose.yml`). If it's empty on first start,
+an init step generates the same self-signed fallback the systemd installer does.
+Replace `/certs/fullchain.pem` and `/certs/privkey.pem` on the host and run
+`docker compose exec proxy nginx -s reload` — no rebuild.
+
+Only the `proxy` service publishes ports to the host; `app` is reachable solely
+over the internal Compose network. See `docker-compose.yml` for the full
+resource/security settings (non-root, read-only root filesystem where
+practical, dropped capabilities, `no-new-privileges`, a healthcheck on
+`/healthz`).
+
 ## Installer variables
 
 `deploy/install.sh` reads these from the environment. Pass them with
@@ -97,6 +167,12 @@ remote command interface with full GM authority.
 | `BIND_ADDR` | `127.0.0.1` |
 | `PORT` | `8090` |
 | `WORKERS` | `2` |
+| `ENABLE_TLS` | `1` |
+| `HTTPS_PORT` | `443` |
+| `HTTP_PORT` | `80` |
+| `TLS_CERT_PATH` | `$CONFIG_DIR/tls/fullchain.pem` |
+| `TLS_KEY_PATH` | `$CONFIG_DIR/tls/privkey.pem` |
+| `TLS_CN` | `$BIND_ADDR` |
 | `SERVICE_USER` | `acoreweb` |
 | `SERVICE_NAME` | `acore-webadmin` |
 | `APP_DIR` | `/opt/acore-webadmin` |

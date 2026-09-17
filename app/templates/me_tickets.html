@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}My tickets{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <p style="margin-bottom:6px"><a href="{{ url_for('self.index') }}">&larr; My account</a></p>
+  <h1>My tickets</h1>
+  <p>GM tickets opened from your own characters, and any GM response. Open a
+    new ticket from the in-game Help window.</p>
+</div>
+
+<div class="card">
+  <h2>Tickets <span class="count">&mdash; {{ rows|length }}</span></h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr><th>Character</th><th>Opened</th><th>Status</th><th>Description</th><th>GM response</th></tr>
+    </thead>
+    <tbody>
+      {% for t in rows %}
+      <tr>
+        <td>{{ t.name }}</td>
+        <td class="mono muted">{{ t.createTime|ts }}</td>
+        <td>
+          {% if t.completed %}<span class="tag offline">Closed</span>
+          {% else %}<span class="tag online">Open</span>{% endif %}
+        </td>
+        <td>{{ t.description or '—' }}</td>
+        <td>{{ t.response or t.comment or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No tickets from your characters.</div>
+  {% endif %}
+</div>
+{% endblock %}
