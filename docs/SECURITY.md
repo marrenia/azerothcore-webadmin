@@ -143,14 +143,27 @@ A reverse proxy (nginx) terminates TLS in front of the app; the app itself binds
 `127.0.0.1` only, always, whether or not the proxy is enabled - it has never been
 reachable directly from `BIND_ADDR`.
 
-- **Zero-config fallback**: `deploy/install.sh` (with the default `ENABLE_TLS=1`)
-  generates a self-signed certificate at `$CONFIG_DIR/tls/{fullchain.pem,privkey.pem}`
-  if neither file already exists. The private key is `root:root 0600`; the
-  directory is `0711`.
-- **Replacing it**: drop a CA-issued `fullchain.pem` and `privkey.pem` at those
-  same two paths (same names, same permissions) and `systemctl reload nginx`.
+- **Three ways to get a certificate**, chosen with `TLS_MODE`:
+  - `selfsigned` (default) - generated at `$CONFIG_DIR/tls/{fullchain.pem,privkey.pem}`
+    if neither file exists. Key is `root:root 0600`, directory `0711`. Browsers
+    warn, which over time trains people to click through warnings - treat this as
+    a fallback, not a destination.
+  - `tailscale` - a real Let's Encrypt certificate for the node's MagicDNS name,
+    issued by Tailscale. Browser-trusted with **nothing exposed to the internet**
+    and no inbound ports opened. The best option for a private deployment. The
+    installer also adds a daily renewal timer; these certs last ~90 days, so
+    omitting renewal would just be a delayed outage.
+  - `letsencrypt` - certbot over HTTP-01 for a public domain. This necessarily
+    means the panel is internet-reachable; read "Public-internet deployment
+    prerequisites" below before choosing it.
+- **Replacing any of them**: drop a CA-issued `fullchain.pem` and `privkey.pem` at
+  the same two paths (same names, same permissions) and `systemctl reload nginx`.
   No source change, no rebuild, no app restart. See docs/CONFIGURATION.md for
   the exact commands.
+- Automatic renewal exists for `tailscale` (a timer this repo installs) and
+  `letsencrypt` (certbot's own timer, with a hook that reloads nginx). The
+  `selfsigned` mode has no renewal: its certificate is valid 825 days and then
+  simply expires.
 - HTTP on the same `BIND_ADDR` is redirect-only (301 to HTTPS); the app never
   serves plaintext on that address.
 - `Strict-Transport-Security` is set by the app itself, but only when
@@ -248,9 +261,13 @@ This build is closer to public-internet-ready than the original single-admin
 panel, but going from "tailnet-only" to "reachable from the internet" is still a
 deliberate step this repo does not take for you. Before doing it:
 
-1. **Replace the self-signed certificate** with a CA-issued one (see "TLS"
-   above) - a self-signed cert trains users to click through browser warnings,
-   which defeats the point of TLS.
+1. **Use a CA-issued certificate**, not the self-signed fallback - install with
+   `TLS_MODE=letsencrypt TLS_DOMAIN=... LETSENCRYPT_EMAIL=...`, or drop your own
+   certificate in at the documented paths. A self-signed cert trains users to
+   click through browser warnings, which defeats the point of TLS.
+   Note that `TLS_MODE=letsencrypt` configures TLS and nothing else: it does not
+   add accounts, rate limiting, or an audit trail, and the installer prints a
+   warning saying so.
 2. **Put a real rate limiter / WAF in front of it.** The in-process limiters here
    are a speed bump against a casual attempt, not protection against a
    distributed one.

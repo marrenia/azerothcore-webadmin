@@ -24,21 +24,51 @@ SERVICE_NAME="${SERVICE_NAME:-acore-webadmin}"
 
 # BIND_ADDR is the address end users reach. Default to loopback on purpose:
 # binding it to a public interface would expose a GM console to the internet.
-# With ENABLE_TLS=1 (the default) BIND_ADDR is where the TLS proxy listens;
+# With any TLS_MODE other than 'none' BIND_ADDR is where the TLS proxy listens;
 # the app process itself always binds 127.0.0.1 only, never BIND_ADDR
 # directly, so there is exactly one way in and it is TLS-terminated.
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
 PORT="${PORT:-8090}"
 WORKERS="${WORKERS:-2}"
 
-# TLS: on by default. Set ENABLE_TLS=0 only for a purely loopback,
-# single-machine install where a proxy would add nothing.
+# TLS_MODE picks how the certificate is obtained:
+#
+#   selfsigned  (default) Generate a self-signed cert. Zero prerequisites,
+#               browsers warn. Fine for loopback/VPN use.
+#   tailscale   Ask Tailscale for a real Let's Encrypt cert for this node's
+#               MagicDNS name. Browser-trusted, no warning, no public exposure
+#               and no open ports - Tailscale does the ACME work. Requires
+#               HTTPS Certificates enabled for the tailnet.
+#   letsencrypt Obtain a real Let's Encrypt cert with certbot over HTTP-01.
+#               PUBLIC-FACING: needs TLS_DOMAIN pointing at this host and
+#               inbound 80/443 reachable from the internet. Read
+#               docs/SECURITY.md first - HTTPS does not make this panel safe
+#               to expose; it only stops eavesdropping.
+#   none        No proxy. The app binds BIND_ADDR directly over plain HTTP.
+#
+# ENABLE_TLS=0 remains supported and is equivalent to TLS_MODE=none.
+TLS_MODE="${TLS_MODE:-selfsigned}"
 ENABLE_TLS="${ENABLE_TLS:-1}"
+[[ "$ENABLE_TLS" == "0" ]] && TLS_MODE="none"
+
 HTTPS_PORT="${HTTPS_PORT:-443}"
 HTTP_PORT="${HTTP_PORT:-80}"
 TLS_CERT_PATH="${TLS_CERT_PATH:-$CONFIG_DIR/tls/fullchain.pem}"
 TLS_KEY_PATH="${TLS_KEY_PATH:-$CONFIG_DIR/tls/privkey.pem}"
 TLS_CN="${TLS_CN:-$BIND_ADDR}"
+
+# Domain name presented to users. Required for letsencrypt; auto-detected from
+# Tailscale for tailscale mode; unused otherwise.
+TLS_DOMAIN="${TLS_DOMAIN:-}"
+LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
+# Point certbot at the staging CA while testing, so a broken run does not burn
+# the (low) production rate limit for the domain.
+LETSENCRYPT_STAGING="${LETSENCRYPT_STAGING:-0}"
+ACME_WEBROOT="${ACME_WEBROOT:-/var/www/$SERVICE_NAME-acme}"
+
+# Keep an old plain-HTTP entry point working as a redirect after adding TLS,
+# so existing bookmarks do not break. Empty disables it.
+LEGACY_REDIRECT_PORT="${LEGACY_REDIRECT_PORT:-}"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-3306}"
@@ -216,7 +246,7 @@ fi
 
 # ------------------------------------------------------------------ systemd
 
-if [[ "$ENABLE_TLS" == "1" ]]; then
+if [[ "$TLS_MODE" != "none" ]]; then
     APP_BIND_ADDR="127.0.0.1"
     BEHIND_TLS_PROXY="1"
 else
@@ -255,47 +285,211 @@ fi
 
 # ------------------------------------------------------------------ TLS proxy
 
+case "$TLS_MODE" in
+    selfsigned|tailscale|letsencrypt|none) ;;
+    *) die "TLS_MODE must be one of: selfsigned, tailscale, letsencrypt, none (got '$TLS_MODE')" ;;
+esac
+
+# Validate mode prerequisites BEFORE touching anything, so a missing flag fails
+# immediately instead of halfway through reconfiguring a working install.
+if [[ "$TLS_MODE" == "tailscale" ]]; then
+    command -v tailscale >/dev/null || die "TLS_MODE=tailscale needs the tailscale CLI on PATH."
+    if [[ -z "$TLS_DOMAIN" ]]; then
+        TLS_DOMAIN="$(tailscale status --json 2>/dev/null \
+            | tr ',' '\n' | grep -oE '[A-Za-z0-9-]+\.[A-Za-z0-9-]+\.ts\.net' | head -1 || true)"
+    fi
+    [[ -n "$TLS_DOMAIN" ]] || die "Could not determine this node's MagicDNS name.
+       Enable HTTPS Certificates for the tailnet (Admin console -> DNS -> HTTPS
+       Certificates), then re-run, or pass TLS_DOMAIN=<name>.ts.net explicitly."
+    if [[ "$BIND_ADDR" == "127.0.0.1" ]]; then
+        ts_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+        [[ -n "$ts_ip" ]] && { BIND_ADDR="$ts_ip"; say "Binding the tailnet address $BIND_ADDR"; }
+    fi
+fi
+
+if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+    [[ -n "$TLS_DOMAIN" ]] || die "TLS_MODE=letsencrypt requires TLS_DOMAIN=<fqdn> resolving to this host."
+    [[ -n "$LETSENCRYPT_EMAIL" ]] || die "TLS_MODE=letsencrypt requires LETSENCRYPT_EMAIL=<address> for expiry notices."
+    warn "letsencrypt mode is PUBLIC-FACING. Ports $HTTP_PORT and $HTTPS_PORT must be"
+    warn "reachable from the internet, which means this panel is too. HTTPS stops"
+    warn "eavesdropping; it does not add accounts, rate limiting or an audit trail."
+    warn "Read docs/SECURITY.md before leaving this running."
+fi
+
+# SERVER_NAME must be the real hostname wherever a CA issued for it, so nginx
+# picks the right vhost and redirects land on a name the certificate covers.
+if [[ -n "$TLS_DOMAIN" ]]; then SERVER_NAME="$TLS_DOMAIN"; else SERVER_NAME="_"; fi
+# Emitting :443 in redirects produces ugly, non-canonical URLs.
+if [[ "$HTTPS_PORT" == "443" ]]; then HTTPS_SUFFIX=""; else HTTPS_SUFFIX=":$HTTPS_PORT"; fi
+# nginx shared zones are global; two panels on one host must not collide.
+SESSION_CACHE="$(printf 'tls_%s' "$SERVICE_NAME" | tr -c 'A-Za-z0-9_' '_')"
+
+LEGACY_REDIRECT=""
+if [[ -n "$LEGACY_REDIRECT_PORT" ]]; then
+    redirect_host="${TLS_DOMAIN:-\$host}"
+    LEGACY_REDIRECT=$(cat <<LEGACY
+
+# Legacy plain-HTTP entry point, kept so existing bookmarks still resolve.
+server {
+    listen $BIND_ADDR:$LEGACY_REDIRECT_PORT;
+    server_name $SERVER_NAME;
+    return 301 https://${redirect_host}${HTTPS_SUFFIX}\$request_uri;
+}
+LEGACY
+)
+fi
+
 proxy_ok=1
-if [[ "$ENABLE_TLS" == "1" ]]; then
+if [[ "$TLS_MODE" != "none" ]]; then
     if ! command -v nginx >/dev/null; then
         say "Installing nginx (TLS reverse proxy)"
         if command -v apt-get >/dev/null; then
             apt-get update -qq
             apt-get install -y -qq nginx
         else
-            die "nginx is required for TLS. Install it, or re-run with ENABLE_TLS=0."
+            die "nginx is required for TLS. Install it, or re-run with TLS_MODE=none."
         fi
     fi
 
-    bash "$SRC_DIR/deploy/gen-selfsigned-cert.sh" \
-        "$TLS_CERT_PATH" "$TLS_KEY_PATH" 825 "$TLS_CN" "root:root"
+    mkdir -p "$ACME_WEBROOT"
+
+    case "$TLS_MODE" in
+        selfsigned)
+            bash "$SRC_DIR/deploy/gen-selfsigned-cert.sh" \
+                "$TLS_CERT_PATH" "$TLS_KEY_PATH" 825 "$TLS_CN" "root:root"
+            ;;
+        tailscale)
+            say "Requesting a Let's Encrypt certificate from Tailscale for $TLS_DOMAIN"
+            mkdir -p "$(dirname "$TLS_CERT_PATH")" "$(dirname "$TLS_KEY_PATH")"
+            chmod 711 "$(dirname "$TLS_CERT_PATH")"
+            tailscale cert --cert-file "$TLS_CERT_PATH" --key-file "$TLS_KEY_PATH" "$TLS_DOMAIN" \
+                || die "tailscale cert failed. Is 'HTTPS Certificates' enabled for this tailnet?"
+            chmod 644 "$TLS_CERT_PATH"; chmod 600 "$TLS_KEY_PATH"
+            ;;
+        letsencrypt)
+            if ! command -v certbot >/dev/null; then
+                say "Installing certbot"
+                command -v apt-get >/dev/null || die "certbot is required. Install it and re-run."
+                apt-get install -y -qq certbot
+            fi
+            ;;
+    esac
 
     say "Configuring nginx site '$SERVICE_NAME'"
     NGINX_SITE="/etc/nginx/sites-available/$SERVICE_NAME.conf"
-    sed -e "s|{{BIND_ADDR}}|$BIND_ADDR|g" \
-        -e "s|{{HTTP_PORT}}|$HTTP_PORT|g" \
-        -e "s|{{HTTPS_PORT}}|$HTTPS_PORT|g" \
-        -e "s|{{TLS_CERT_PATH}}|$TLS_CERT_PATH|g" \
-        -e "s|{{TLS_KEY_PATH}}|$TLS_KEY_PATH|g" \
-        -e "s|{{APP_HOST}}|127.0.0.1|g" \
-        -e "s|{{APP_PORT}}|$PORT|g" \
-        "$SRC_DIR/deploy/nginx/acore-webadmin.conf.template" \
+    render_site() {  # render_site <cert> <key>
+        sed -e "s|{{BIND_ADDR}}|$BIND_ADDR|g" \
+            -e "s|{{HTTP_PORT}}|$HTTP_PORT|g" \
+            -e "s|{{HTTPS_PORT}}|$HTTPS_PORT|g" \
+            -e "s|{{HTTPS_SUFFIX}}|$HTTPS_SUFFIX|g" \
+            -e "s|{{SERVER_NAME}}|$SERVER_NAME|g" \
+            -e "s|{{ACME_WEBROOT}}|$ACME_WEBROOT|g" \
+            -e "s|{{SESSION_CACHE}}|$SESSION_CACHE|g" \
+            -e "s|{{TLS_CERT_PATH}}|$1|g" \
+            -e "s|{{TLS_KEY_PATH}}|$2|g" \
+            -e "s|{{APP_HOST}}|127.0.0.1|g" \
+            -e "s|{{APP_PORT}}|$PORT|g" \
+            "$SRC_DIR/deploy/nginx/acore-webadmin.conf.template" \
+        | awk -v legacy="$LEGACY_REDIRECT" '{gsub(/\{\{LEGACY_REDIRECT\}\}/, legacy)}1' \
         > "$NGINX_SITE"
+    }
+
     mkdir -p /etc/nginx/sites-enabled
+    # The stock default site binds 0.0.0.0:80 - a wildcard listener this host
+    # should not have, and it would also shadow the ACME vhost.
+    rm -f /etc/nginx/sites-enabled/default
+
+    if [[ "$TLS_MODE" == "letsencrypt" && ! -s "$TLS_CERT_PATH" ]]; then
+        # Chicken and egg: nginx will not start without a certificate, but
+        # HTTP-01 needs nginx serving port 80. Bring up an HTTP-only vhost that
+        # answers the challenge, get the cert, then render the real config.
+        say "Serving an HTTP-only vhost so Let's Encrypt can validate $TLS_DOMAIN"
+        cat > "$NGINX_SITE" <<BOOTSTRAP
+server {
+    listen $BIND_ADDR:$HTTP_PORT;
+    server_name $SERVER_NAME;
+    location ^~ /.well-known/acme-challenge/ { root $ACME_WEBROOT; default_type "text/plain"; }
+    location / { return 503; }
+}
+BOOTSTRAP
+        ln -sf "$NGINX_SITE" "/etc/nginx/sites-enabled/$SERVICE_NAME.conf"
+        nginx -t >/dev/null 2>&1 || die "bootstrap nginx config failed to validate"
+        systemctl enable nginx >/dev/null 2>&1 || true
+        systemctl reload nginx 2>/dev/null || systemctl restart nginx
+
+        staging_flag=""
+        [[ "$LETSENCRYPT_STAGING" == "1" ]] && staging_flag="--staging"
+        certbot certonly --webroot -w "$ACME_WEBROOT" -d "$TLS_DOMAIN" \
+            --email "$LETSENCRYPT_EMAIL" --agree-tos --non-interactive $staging_flag \
+            --deploy-hook "systemctl reload nginx" \
+            || die "certbot could not issue a certificate for $TLS_DOMAIN.
+       Check that the name resolves to this host and port $HTTP_PORT is reachable."
+        TLS_CERT_PATH="/etc/letsencrypt/live/$TLS_DOMAIN/fullchain.pem"
+        TLS_KEY_PATH="/etc/letsencrypt/live/$TLS_DOMAIN/privkey.pem"
+        say "certbot renews this automatically via its own systemd timer"
+    elif [[ "$TLS_MODE" == "letsencrypt" ]]; then
+        TLS_CERT_PATH="/etc/letsencrypt/live/$TLS_DOMAIN/fullchain.pem"
+        TLS_KEY_PATH="/etc/letsencrypt/live/$TLS_DOMAIN/privkey.pem"
+    fi
+
+    render_site "$TLS_CERT_PATH" "$TLS_KEY_PATH"
     ln -sf "$NGINX_SITE" "/etc/nginx/sites-enabled/$SERVICE_NAME.conf"
+
+    if [[ "$TLS_MODE" == "tailscale" ]]; then
+        # Tailscale certs last ~90 days. Shipping TLS with no renewal is just a
+        # scheduled outage, so install a daily check.
+        install -m 700 "$SRC_DIR/deploy/tls-renew-tailscale.sh" \
+            /usr/local/sbin/"$SERVICE_NAME"-tls-renew.sh
+        cat > "/etc/systemd/system/$SERVICE_NAME-tls-renew.service" <<UNIT
+[Unit]
+Description=Renew $SERVICE_NAME TLS certificate (Tailscale)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/$SERVICE_NAME-tls-renew.sh $TLS_DOMAIN $TLS_CERT_PATH $TLS_KEY_PATH
+UNIT
+        cat > "/etc/systemd/system/$SERVICE_NAME-tls-renew.timer" <<UNIT
+[Unit]
+Description=Daily TLS certificate renewal check for $SERVICE_NAME
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+        systemctl daemon-reload
+        systemctl enable --now "$SERVICE_NAME-tls-renew.timer" >/dev/null 2>&1 || true
+        say "Installed daily certificate renewal ($SERVICE_NAME-tls-renew.timer)"
+
+        # MagicDNS may not resolve on this host (tailscale up --accept-dns=false),
+        # which would break local health checks. A hosts entry fixes that without
+        # handing the system resolver to tailscaled.
+        if ! getent hosts "$TLS_DOMAIN" >/dev/null 2>&1; then
+            grep -q "[[:space:]]$TLS_DOMAIN\$" /etc/hosts \
+                || echo "$BIND_ADDR $TLS_DOMAIN" >> /etc/hosts
+            say "Added $TLS_DOMAIN to /etc/hosts (MagicDNS is not resolvable here)"
+        fi
+    fi
 
     if nginx -t 2>&1 | sed 's/^/    /'; then
         systemctl enable nginx >/dev/null 2>&1 || true
         systemctl reload nginx 2>/dev/null || systemctl restart nginx
         say "Waiting for the TLS proxy to answer"
         proxy_ok=0
+        probe_host="${TLS_DOMAIN:-$BIND_ADDR}"
         for _ in $(seq 1 20); do
-            if curl -fsSk -o /dev/null "https://$BIND_ADDR:$HTTPS_PORT/healthz" 2>/dev/null; then
+            if curl -fsSk -o /dev/null --resolve "$probe_host:$HTTPS_PORT:$BIND_ADDR" \
+                 "https://$probe_host:$HTTPS_PORT/healthz" 2>/dev/null; then
                 proxy_ok=1; break
             fi
             sleep 1
         done
-        (( proxy_ok )) || warn "TLS proxy did not answer on https://$BIND_ADDR:$HTTPS_PORT/healthz"
+        (( proxy_ok )) || warn "TLS proxy did not answer on https://$probe_host:$HTTPS_PORT/healthz"
     else
         proxy_ok=0
         warn "nginx config test failed - TLS proxy not (re)loaded. App is still up on loopback."
@@ -303,19 +497,24 @@ if [[ "$ENABLE_TLS" == "1" ]]; then
 fi
 
 echo
-if (( ok )) && { [[ "$ENABLE_TLS" != "1" ]] || (( proxy_ok )); }; then
+if (( ok )) && { [[ "$TLS_MODE" == "none" ]] || (( proxy_ok )); }; then
     say "Installed and responding."
 else
     warn "Installed, but something above did not come up cleanly - see warnings."
 fi
 
 echo
-if [[ "$ENABLE_TLS" == "1" ]]; then
-    echo "  URL       https://$BIND_ADDR:$HTTPS_PORT/"
-    echo "            (self-signed cert unless you already replaced $TLS_CERT_PATH)"
-else
-    echo "  URL       http://$BIND_ADDR:$PORT/  (no TLS - ENABLE_TLS=0)"
-fi
+case "$TLS_MODE" in
+    none)
+        echo "  URL       http://$BIND_ADDR:$PORT/  (no TLS - TLS_MODE=none)" ;;
+    selfsigned)
+        echo "  URL       https://$BIND_ADDR$HTTPS_SUFFIX/"
+        echo "            Self-signed: browsers warn until you install a real"
+        echo "            certificate at $TLS_CERT_PATH" ;;
+    tailscale|letsencrypt)
+        echo "  URL       https://$TLS_DOMAIN$HTTPS_SUFFIX/"
+        echo "            Certificate issued by Let's Encrypt - no browser warning." ;;
+esac
 echo "  Username  $ADMIN_USER"
 if [[ -n "$GENERATED_PASS" ]]; then
     echo "  Password  $GENERATED_PASS"
@@ -326,9 +525,13 @@ else
 fi
 echo
 if [[ "$BIND_ADDR" != "127.0.0.1" ]] && [[ "$BIND_ADDR" != "localhost" ]]; then
-    if [[ "$ENABLE_TLS" != "1" ]]; then
+    if [[ "$TLS_MODE" == "none" ]]; then
         warn "Bound to $BIND_ADDR with no TLS. Traffic including the login form is plaintext."
     fi
-    warn "Make sure $BIND_ADDR is only reachable from a network you trust - this installer"
-    warn "never binds a public interface, and you should not make it do so by hand."
+    if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+        warn "This install is internet-facing. Re-read docs/SECURITY.md: one shared admin"
+        warn "login, a per-worker lockout, and a GM console one session hijack away."
+    else
+        warn "Make sure $BIND_ADDR is only reachable from a network you trust."
+    fi
 fi

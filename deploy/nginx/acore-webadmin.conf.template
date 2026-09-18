@@ -7,20 +7,33 @@
 # enforce HTTPS, security headers and (if you add one) an IP allowlist.
 #
 # {{BIND_ADDR}} is the address end users reach - a tailnet/VPN IP, or
-# 127.0.0.1 for local-only use. It is never 0.0.0.0: this template does not
-# support binding a public interface, on purpose (see docs/SECURITY.md).
+# 127.0.0.1 for local-only use, or 0.0.0.0 only if you have deliberately
+# chosen to expose this panel to the internet (TLS_MODE=letsencrypt).
+# Read docs/SECURITY.md before you do that: HTTPS fixes eavesdropping and
+# nothing else about this panel's threat model.
 
 server {
     listen {{BIND_ADDR}}:{{HTTP_PORT}};
-    server_name _;
-    # Plain-HTTP is redirect-only. No app traffic is ever served here.
-    return 301 https://$host:{{HTTPS_PORT}}$request_uri;
+    server_name {{SERVER_NAME}};
+
+    # ACME HTTP-01 challenges must be answered over plain HTTP, so they are
+    # served before the redirect below. Unused by the self-signed and
+    # tailscale modes; the directory simply stays empty there.
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ACME_WEBROOT}};
+        default_type "text/plain";
+    }
+
+    # Everything else is redirect-only. No app traffic is served over HTTP.
+    location / {
+        return 301 https://$host{{HTTPS_SUFFIX}}$request_uri;
+    }
 }
 
 server {
     listen {{BIND_ADDR}}:{{HTTPS_PORT}} ssl;
     http2 on;
-    server_name _;
+    server_name {{SERVER_NAME}};
 
     # Stable, documented paths. Replace these two files with a CA-issued
     # fullchain + key (same filenames, same permissions) and reload nginx -
@@ -31,7 +44,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5:!3DES;
     ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:acorewebadmin_tls:10m;
+    ssl_session_cache shared:{{SESSION_CACHE}}:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
@@ -59,3 +72,4 @@ server {
         proxy_read_timeout 60s;
     }
 }
+{{LEGACY_REDIRECT}}

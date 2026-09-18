@@ -89,18 +89,83 @@ remote command interface with full GM authority.
 
 ## TLS
 
-`deploy/install.sh` puts nginx in front of the app and terminates TLS there,
-unless you pass `ENABLE_TLS=0`. The app itself always binds `127.0.0.1` only,
-whether or not TLS is on — there is never a direct route to it from `BIND_ADDR`.
+`deploy/install.sh` puts nginx in front of the app and terminates TLS there. The
+app itself always binds `127.0.0.1` only whenever a proxy is present — there is
+never a direct route to it from `BIND_ADDR`.
+
+`TLS_MODE` picks how the certificate is obtained.
+
+| Mode | Cert | Browser warning | Needs |
+|---|---|---|---|
+| `selfsigned` *(default)* | generated locally | **yes** | nothing |
+| `tailscale` | real Let's Encrypt, via Tailscale | no | a tailnet with HTTPS Certificates enabled |
+| `letsencrypt` | real Let's Encrypt, via certbot | no | a public domain + inbound 80/443 |
+| `none` | — | n/a | app binds `BIND_ADDR` directly, plaintext |
+
+### `TLS_MODE=tailscale` — recommended for private deployments
+
+The best option if you already reach the host over Tailscale: a genuine,
+browser-trusted certificate with **nothing exposed to the internet**. Tailscale
+performs the ACME dance; no ports are opened and no DNS is published.
+
+```bash
+sudo env TLS_MODE=tailscale ./deploy/install.sh
+```
+
+The installer detects this node's MagicDNS name, binds the tailnet IP if
+`BIND_ADDR` is still the loopback default, and installs a **daily renewal timer**
+(`<service>-tls-renew.timer`) — Tailscale certs last ~90 days, so shipping
+without renewal would just be a scheduled outage. It reloads nginx only when the
+certificate actually changes, and only after `nginx -t` passes.
+
+Prerequisite: enable **HTTPS Certificates** in the Tailscale admin console under
+DNS. Without it `tailscale cert` fails and the installer stops with that message
+rather than silently falling back to a self-signed cert.
+
+If the host runs `tailscale up --accept-dns=false`, it cannot resolve its own
+`*.ts.net` name. The installer adds a `/etc/hosts` entry so local health checks
+work, rather than handing your system resolver to tailscaled.
+
+### `TLS_MODE=letsencrypt` — public-facing
+
+**Read [SECURITY.md](SECURITY.md) first.** This panel has one shared admin login,
+a login lockout that resets on restart, no audit trail, and a GM console that is
+one session hijack away from full realm control. HTTPS stops eavesdropping. It
+does not make any of that safe to expose.
+
+```bash
+sudo env TLS_MODE=letsencrypt \
+  TLS_DOMAIN=panel.example.com \
+  LETSENCRYPT_EMAIL=you@example.com \
+  BIND_ADDR=0.0.0.0 \
+  ./deploy/install.sh
+```
+
+`TLS_DOMAIN` must already resolve to this host and port 80 must be reachable —
+certbot validates over HTTP-01. The installer brings up an HTTP-only vhost that
+answers `/.well-known/acme-challenge/`, obtains the certificate, then renders the
+real config. Renewal is certbot's own systemd timer, with a deploy hook that
+reloads nginx.
+
+Test with `LETSENCRYPT_STAGING=1` first. Let's Encrypt's production rate limit
+for a domain is low and a few failed attempts will lock you out for a week.
+
+### All TLS variables
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ENABLE_TLS` | `1` | `0` restores the old direct-bind, no-proxy behaviour: the app binds `BIND_ADDR:PORT` itself, plaintext. |
-| `HTTPS_PORT` | `443` | Where nginx listens for HTTPS, on `BIND_ADDR`. |
-| `HTTP_PORT` | `80` | Where nginx listens for plain HTTP, on `BIND_ADDR` — redirect-only, 301 to HTTPS. |
-| `TLS_CERT_PATH` | `$CONFIG_DIR/tls/fullchain.pem` | Certificate (+ chain) nginx serves. |
+| `TLS_MODE` | `selfsigned` | `selfsigned` \| `tailscale` \| `letsencrypt` \| `none` |
+| `ENABLE_TLS` | `1` | Back-compat. `0` is equivalent to `TLS_MODE=none`. |
+| `TLS_DOMAIN` | *(auto for tailscale)* | Hostname users type. **Required** for `letsencrypt`. |
+| `LETSENCRYPT_EMAIL` | — | **Required** for `letsencrypt`; receives expiry notices. |
+| `LETSENCRYPT_STAGING` | `0` | `1` uses the staging CA — untrusted certs, no rate limit. |
+| `ACME_WEBROOT` | `/var/www/<service>-acme` | Where HTTP-01 challenge files are served from. |
+| `HTTPS_PORT` | `443` | Where nginx listens for HTTPS on `BIND_ADDR`. |
+| `HTTP_PORT` | `80` | Plain HTTP on `BIND_ADDR`: ACME challenges, otherwise 301 to HTTPS. |
+| `LEGACY_REDIRECT_PORT` | — | An older port to keep answering with a 301, so existing bookmarks survive. |
+| `TLS_CERT_PATH` | `$CONFIG_DIR/tls/fullchain.pem` | Certificate (+ chain) nginx serves. Ignored for `letsencrypt`, which uses certbot's own path. |
 | `TLS_KEY_PATH` | `$CONFIG_DIR/tls/privkey.pem` | Its private key. Written `root:root 0600`. |
-| `TLS_CN` | `$BIND_ADDR` | Common Name / SAN used when generating the self-signed fallback. |
+| `TLS_CN` | `$BIND_ADDR` | CN/SAN for the self-signed fallback only. |
 
 ### Replacing the self-signed certificate
 

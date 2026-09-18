@@ -70,12 +70,12 @@ before you consider it.
 
 What changed and what's still true:
 
-- **TLS is now bundled.** `deploy/install.sh` installs and configures an nginx
-  reverse proxy in front of the app by default (`ENABLE_TLS=1`), generating a
-  self-signed certificate as a zero-configuration fallback and redirecting HTTP
-  to HTTPS. The app itself binds loopback only, always. See
-  [docs/CONFIGURATION.md](docs/CONFIGURATION.md#tls) for how to drop in a
-  CA-issued certificate.
+- **TLS is now bundled**, with three ways to get a certificate (`TLS_MODE`):
+  a self-signed fallback needing nothing, a **real Let's Encrypt certificate via
+  Tailscale** for the node's MagicDNS name (browser-trusted, nothing exposed to
+  the internet), or **certbot** for a public domain. Renewal is automatic for the
+  latter two. The app itself binds loopback only, always, and HTTP is
+  redirect-only. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#tls).
 - **Roles exist now** — see the table above — but there is still no full audit
   trail of who did what beyond world-edit log lines and the systemd journal.
 - **Login lockout** is per-IP and per-username, bounded in memory, but still
@@ -154,9 +154,16 @@ cd azerothcore-webadmin
 sudo ./deploy/install.sh
 ```
 
+If you reach the host over Tailscale, this gets you a properly trusted
+certificate with no ports exposed and automatic renewal:
+
+```bash
+sudo env TLS_MODE=tailscale ./deploy/install.sh
+```
+
 The installer creates a service user, generates the MySQL account and grants,
 writes credential files with a generated admin password, installs a systemd unit,
-sets up the TLS proxy with a self-signed certificate, and prints the URL. Full
+sets up the TLS proxy, and prints the URL. Full
 walkthrough and every configurable value: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 Nothing in the code is specific to the machine it was written on — paths, bind
