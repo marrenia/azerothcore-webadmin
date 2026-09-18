@@ -150,6 +150,12 @@ reloads nginx.
 Test with `LETSENCRYPT_STAGING=1` first. Let's Encrypt's production rate limit
 for a domain is low and a few failed attempts will lock you out for a week.
 
+> **Docker/Compose users:** `TLS_MODE` is a `deploy/install.sh` feature and does
+> not apply to the Compose stack, which has its own proxy container. That
+> container generates a self-signed certificate if the mounted cert volume is
+> empty and never overwrites one you supply — mount a real `fullchain.pem` and
+> `privkey.pem` to replace it.
+
 ### All TLS variables
 
 | Variable | Default | Purpose |

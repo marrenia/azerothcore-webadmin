@@ -3,8 +3,9 @@
 ## Before you start
 
 Read the warnings in the [README](../README.md) and [SECURITY.md](SECURITY.md).
-Short version: this is vibecoded, it has no TLS, it has one admin login, and it has
-only ever run inside a private tailnet. Bind it to a private address.
+Short version: this is vibecoded and it has only ever been run in anger inside a
+private tailnet. It now ships TLS and role-based access, but neither turns it
+into software that has had a real security review.
 
 You need:
 
@@ -13,6 +14,12 @@ You need:
 - Python 3.9+ with `flask`, `pymysql`, `gunicorn`
 - systemd
 - `openssl` and `curl` (used by the installer)
+- nginx — installed automatically unless you pass `TLS_MODE=none`
+
+Optional, depending on how you want your certificate issued:
+
+- `tailscale`, for `TLS_MODE=tailscale`
+- `certbot`, for `TLS_MODE=letsencrypt` (installed automatically on apt systems)
 
 ## Quick install
 
@@ -22,11 +29,17 @@ cd azerothcore-webadmin
 sudo ./deploy/install.sh
 ```
 
-Defaults: binds `127.0.0.1:8090`, service user `acoreweb`, app in
-`/opt/acore-webadmin`, config in `/etc/acore`.
+Defaults: nginx terminates TLS on `127.0.0.1:443` with a self-signed
+certificate, the app itself binds `127.0.0.1:8090` and is never reachable
+directly, service user `acoreweb`, app in `/opt/acore-webadmin`, config in
+`/etc/acore`.
 
 The installer prints a generated admin password at the end. **Save it** — it is
 stored only in `/etc/acore/webadmin.env`.
+
+That default certificate is self-signed, so browsers will warn. See
+[TLS](#tls) below for how to get a properly trusted one — on a tailnet it is a
+single extra variable.
 
 ## Binding to a private network address
 
@@ -34,7 +47,6 @@ The default is loopback. To reach the panel from another machine, bind it to a
 VPN/tailnet address:
 
 ```bash
-# Tailscale example
 sudo env BIND_ADDR="$(tailscale ip -4)" ./deploy/install.sh
 ```
 
@@ -43,7 +55,52 @@ resets the environment by default, and many sudoers configurations refuse `-E`
 outright (`sudo: preserving the entire environment is not supported`) — in which
 case your settings are silently ignored and you get the defaults.
 
-Do not bind to `0.0.0.0` or a public IP.
+`BIND_ADDR` is where **nginx** listens. The app process always binds `127.0.0.1`
+regardless, so there is exactly one route in and it is TLS-terminated.
+
+Only bind `0.0.0.0` if you have deliberately decided to expose the panel to the
+internet — see `TLS_MODE=letsencrypt` below and the prerequisites in
+[SECURITY.md](SECURITY.md).
+
+## TLS
+
+`TLS_MODE` decides how the certificate is obtained. Full reference:
+[CONFIGURATION.md](CONFIGURATION.md#tls).
+
+| Mode | Certificate | Browser warning |
+|---|---|---|
+| `selfsigned` *(default)* | generated locally | yes |
+| `tailscale` | real Let's Encrypt, via Tailscale | no |
+| `letsencrypt` | real Let's Encrypt, via certbot | no |
+| `none` | none — plain HTTP | n/a |
+
+**On a tailnet**, this is the one to use. It gets a genuinely trusted
+certificate without exposing anything to the internet or opening any port:
+
+```bash
+sudo env TLS_MODE=tailscale ./deploy/install.sh
+```
+
+It detects the node's MagicDNS name, binds the tailnet IP, and installs a daily
+renewal timer. Requires **HTTPS Certificates** enabled for the tailnet in the
+Tailscale admin console under DNS.
+
+**Public-facing** needs a domain already resolving to the host and inbound
+port 80 for the ACME challenge:
+
+```bash
+sudo env TLS_MODE=letsencrypt \
+  TLS_DOMAIN=panel.example.com \
+  LETSENCRYPT_EMAIL=you@example.com \
+  BIND_ADDR=0.0.0.0 \
+  ./deploy/install.sh
+```
+
+Test with `LETSENCRYPT_STAGING=1` first — Let's Encrypt's production rate limit
+per domain is low, and a few failed attempts lock you out for a week.
+
+If you are moving an existing install behind TLS, `LEGACY_REDIRECT_PORT=8090`
+keeps the old address answering with a redirect so bookmarks survive.
 
 ## Configuring SOAP
 
@@ -88,8 +145,19 @@ Or edit `/etc/acore/soap.env` afterwards and restart the service.
 ## Verifying
 
 ```bash
-systemctl status acore-webadmin
+systemctl status acore-webadmin nginx
+# the app, directly on loopback
 curl -s http://127.0.0.1:8090/healthz
+# through the TLS proxy (-k only because a self-signed cert is expected here)
+curl -sk https://127.0.0.1/healthz
+```
+
+With `TLS_MODE=tailscale` or `letsencrypt`, drop the `-k` and use the real
+hostname — if it does not verify without `-k`, the certificate is not actually
+trusted and something is wrong:
+
+```bash
+curl -s https://your-host.example.com/healthz
 ```
 
 `/healthz` returns `{"status":"ok","worldserver":"up"}` when the database is
@@ -116,7 +184,20 @@ sudo rm -rf /opt/acore-webadmin /var/lib/acore-webadmin
 sudo rm -f /etc/acore/webdb.env /etc/acore/webadmin.env /etc/acore/soap.env
 sudo mysql -e "DROP USER 'acoreweb'@'localhost';"
 sudo userdel acoreweb
+
+# TLS bits, if you installed with a TLS_MODE other than none
+sudo rm -f /etc/nginx/sites-enabled/acore-webadmin.conf \
+           /etc/nginx/sites-available/acore-webadmin.conf
+sudo systemctl disable --now acore-webadmin-tls-renew.timer 2>/dev/null
+sudo rm -f /etc/systemd/system/acore-webadmin-tls-renew.{service,timer} \
+           /usr/local/sbin/acore-webadmin-tls-renew.sh
+sudo rm -rf /etc/acore/tls /var/www/acore-webadmin-acme
+sudo systemctl daemon-reload && sudo nginx -t && sudo systemctl reload nginx
 ```
+
+certbot certificates under `/etc/letsencrypt/` are left alone deliberately —
+other services may be using them. Remove one with
+`sudo certbot delete --cert-name <domain>`.
 
 Nothing in the game databases is modified by uninstalling. The SOAP GM account, if
 you made one, has to be deleted separately from the worldserver console.
@@ -144,3 +225,26 @@ points at the wrong name. See `deploy/grants.sql`.
 
 **Everything involving a GM command fails** — SOAP is not configured, the worldserver
 is down, or the SOAP account's GM level is below 3.
+
+**`tailscale cert` fails** — HTTPS Certificates are not enabled for the tailnet.
+Turn them on in the admin console under DNS. The installer stops rather than
+silently falling back to a self-signed certificate, so you find out now instead
+of when a browser complains.
+
+**Tailscale mode works but the host cannot resolve its own name** — expected if
+tailscaled runs with `--accept-dns=false`. The installer adds an `/etc/hosts`
+entry so local health checks work; it deliberately does not take over the system
+resolver, because a tailnet DNS problem would then break apt and MySQL lookups.
+
+**certbot cannot validate the domain** — the name must resolve to this host and
+port 80 must be reachable from the internet. The installer serves the challenge
+from `ACME_WEBROOT` via an HTTP-only vhost before the real config is rendered;
+if something else already owns port 80, that will fail.
+
+**Browser warns about the certificate** — you are on `TLS_MODE=selfsigned`. That
+is the default and expected. Switch to `tailscale` or `letsencrypt`, or drop a
+CA-issued pair at the documented paths and reload nginx.
+
+**nginx fails to start after install** — run `sudo nginx -t`. The stock `default`
+site is removed by the installer because it binds `0.0.0.0:80`; if you restored
+it, it will collide with the panel vhost.
