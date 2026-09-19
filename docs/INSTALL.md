@@ -3,7 +3,7 @@
 ## Before you start
 
 Read the warnings in the [README](../README.md) and [SECURITY.md](SECURITY.md).
-Short version: this is vibecoded and it has only ever been run in anger inside a
+Short version: this is vibecoded and it has only ever been run inside a
 private tailnet. It now ships TLS and role-based access, but neither turns it
 into software that has had a real security review.
 
