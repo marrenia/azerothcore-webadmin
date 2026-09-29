@@ -29,7 +29,11 @@
     --shadow:0 2px 14px rgba(0,0,0,.5);
   }
   * { box-sizing:border-box; }
-  html,body { height:100%; }
+  /* min-height, not height, on body: a body pinned to one viewport made the
+     sticky top bar scroll away after the first screen, because a sticky
+     element cannot leave its container. */
+  html { height:100%; }
+  body { min-height:100%; }
   body {
     margin:0; background:var(--bg); color:var(--text);
     font:15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -99,7 +103,13 @@
   .card {
     background:linear-gradient(180deg,var(--panel-2),var(--panel));
     border:1px solid var(--line); border-radius:10px;
-    box-shadow:var(--shadow); margin-bottom:20px; overflow:hidden;
+    box-shadow:var(--shadow); margin-bottom:20px;
+    /* clip, not hidden: overflow:hidden makes every card its own scroll
+       container, so the sticky table headers measured --topbar-h from the
+       card instead of the window and sat on top of the first row. clip
+       trims the rounded corners the same way without that side effect.
+       hidden stays as the fallback for browsers without clip. */
+    overflow:hidden; overflow:clip;
   }
   .card > h2 {
     margin:0; padding:13px 20px; font-size:12px; font-weight:700;
