@@ -1,0 +1,61 @@
+{# Per-character statistics from mod-player-statistics.
+   Expects: cstats (dict or none), cstats_error (str or none). #}
+<div class="card">
+  <h2>Statistics</h2>
+  {% if cstats_error %}
+    <div class="card-body muted">{{ cstats_error }}</div>
+  {% elif not cstats or not cstats.events %}
+    <div class="empty">Nothing recorded for this character yet.</div>
+  {% else %}
+  <div class="card-body">
+    <div class="tiles" style="margin-bottom:14px">
+      <div class="tile"><div class="n">{{ '{:,}'.format(cstats.npc_kills) }}</div><div class="l">NPC kills</div></div>
+      <div class="tile"><div class="n">{{ '{:,}'.format(cstats.pvp_kills) }}</div><div class="l">PvP kills</div></div>
+      <div class="tile"><div class="n">{{ '{:,}'.format(cstats.deaths) }}</div><div class="l">Deaths</div></div>
+      <div class="tile"><div class="n">{{ '{:,}'.format(cstats.quests) }}</div><div class="l">Quests</div></div>
+      <div class="tile"><div class="n">{{ '{:,}'.format(cstats.achievements) }}</div><div class="l">Achievements</div></div>
+      <div class="tile"><div class="n">{{ cstats.levels }}</div><div class="l">Levels gained</div></div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <h3 style="margin:0 0 8px">Favourite prey</h3>
+        {% if cstats.prey %}
+          {% for r in cstats.prey %}
+          <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:4px">
+            <span>{{ r.name or ('creature #' ~ r.entry) }}</span><span class="mono muted">{{ r.value }}</span>
+          </div>
+          {% endfor %}
+        {% else %}<div class="faint">No kills recorded.</div>{% endif %}
+      </div>
+      <div>
+        <h3 style="margin:0 0 8px">Nemesis</h3>
+        {% if cstats.nemesis %}
+          {% for r in cstats.nemesis %}
+          <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:4px">
+            <span>{{ r.name or ('creature #' ~ r.entry) }}</span><span class="mono muted">{{ r.value }} deaths</span>
+          </div>
+          {% endfor %}
+        {% else %}<div class="faint">Never killed by a creature.</div>{% endif %}
+      </div>
+    </div>
+    {% if cstats.legacy_deaths_excluded %}
+      <p class="hint">Deaths exclude legacy records: the module's canonical-death migration row is missing.</p>
+    {% endif %}
+  </div>
+
+  <table>
+    <thead><tr><th>When (UTC)</th><th>Event</th><th>Where</th></tr></thead>
+    <tbody>
+      {% for e in cstats.timeline %}
+      <tr>
+        <td class="mono muted" style="white-space:nowrap">{{ e.event_time.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ e.text }}</td>
+        <td class="muted">{{ zone_name(e.zone_id) if e.zone_id else map_name(e.map_id) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="card-body hint">Most recent {{ cstats.timeline|length }} events.</div>
+  {% endif %}
+</div>

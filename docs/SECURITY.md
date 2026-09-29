@@ -44,7 +44,7 @@ No row, or `gmlevel=0`, is **PLAYER**.
 
 | gmlevel | Role | Web panel access |
 |---|---|---|
-| 0 / no row | PLAYER | Self-service only: own account, own ban/mute state, own password change, own characters (including deleted), own tickets and GM responses. No SOAP is used for any of this - it is all direct, ownership-scoped reads plus a single password UPDATE. |
+| 0 / no row | PLAYER | Self-service only: own account, own ban/mute state, own password change, own characters (including deleted), own tickets and GM responses, statistics for their own characters. No SOAP is used for any of this - it is all direct, ownership-scoped reads plus a single password UPDATE. Also the **Leaderboards** tab: aggregate counts with character names, which players can already see in game. Players are not shown account names, locations, the live roster of online humans, or links into staff character tools. |
 | 1 | MODERATOR | Ticket queue: list, comment, close (via SOAP). Mute / unmute a character, kick a character. Nothing else - explicitly no bans, no deletes, no World tab, no Customize tab, no Server tab, no Console. |
 | 2 | GAMEMASTER | Everything ADMIN has except writing `account_access` (GM levels) and the handful of routes reserved for ADMIN below. |
 | 3 | ADMIN | Full access, including granting/revoking GM levels, account/character deletion and restore, the realm list editor, and the raw GM console. Preserves the original single-admin panel's behaviour in full. |
@@ -53,6 +53,11 @@ The **bootstrap `WEB_ADMIN`** identity (`webadmin.env`) is not a database accoun
 it has no `account_id`, is always ADMIN, and cannot be locked or banned through
 the database (only by editing or removing `webadmin.env`). It exists so the panel
 is administrable before any GM account exists.
+
+The Leaderboards tab issues one SOAP command, `playerstats online`, for every
+role, but renders its result differently: staff get the roster (character,
+account, location), players get only the count. The command is read-only and
+is filtered by mod-player-statistics itself.
 
 Routes reserved for ADMIN even though GAMEMASTER can do almost everything else:
 writing `account_access` (gmlevel), account/character delete, deleted-character

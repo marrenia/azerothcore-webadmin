@@ -131,6 +131,18 @@ for db in "$AUTH_DB" "$CHAR_DB"; do
     "${MYSQL_ADMIN[@]}" -N -e "USE \`$db\`" 2>/dev/null \
         || die "Database '$db' does not exist. Is this an AzerothCore host?"
 done
+# mod-player-statistics is a hard dependency: the Leaderboards tab and the
+# per-character statistics read its tables. Checked here, before any user,
+# file or grant is created, because MySQL rejects a table-level GRANT on a
+# table that does not exist - that would otherwise fail halfway through.
+for tbl in mod_player_stats_events mod_player_stats_migrations; do
+    "${MYSQL_ADMIN[@]}" -N -e "SELECT 1 FROM \`$CHAR_DB\`.\`$tbl\` LIMIT 1" >/dev/null 2>&1 \
+        || die "Table '$CHAR_DB.$tbl' not found. acore-webadmin requires the
+       mod-player-statistics module: https://github.com/ShaneBair/mod-player-statistics
+       Add it to your AzerothCore modules/, rebuild, and start the worldserver once
+       so its SQL is applied, then re-run this installer."
+done
+
 HAVE_WORLD=1
 "${MYSQL_ADMIN[@]}" -N -e "USE \`$WORLD_DB\`" 2>/dev/null || {
     HAVE_WORLD=0

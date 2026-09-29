@@ -10,6 +10,9 @@ into software that has had a real security review.
 You need:
 
 - An AzerothCore 3.3.5 realm whose databases are already imported and reachable
+- [mod-player-statistics](https://github.com/ShaneBair/mod-player-statistics) on that
+  realm, with its SQL applied - see [below](#mod-player-statistics). The installer
+  checks for its tables and stops before changing anything if they are missing.
 - MySQL or MariaDB, and a way to connect as an administrative user
 - Python 3.9+ with `flask`, `pymysql`, `gunicorn`
 - systemd
@@ -20,6 +23,49 @@ Optional, depending on how you want your certificate issued:
 
 - `tailscale`, for `TLS_MODE=tailscale`
 - `certbot`, for `TLS_MODE=letsencrypt` (installed automatically on apt systems)
+
+## mod-player-statistics
+
+The Leaderboards tab and the per-character statistics read this module's event
+table, so it is required. Install it like any other compiled module:
+
+1. Clone it into your AzerothCore source tree as `modules/mod-player-statistics`.
+2. Re-run CMake and rebuild the worldserver.
+3. Copy `mod_player_statistics.conf.dist` to `mod_player_statistics.conf` in your
+   module config directory.
+4. Start the worldserver once. With `Updates.EnableDatabases` including the
+   characters database, AzerothCore applies the module's SQL itself; otherwise
+   apply `data/sql/db-characters/mod_player_statistics.sql` by hand.
+5. Confirm both tables exist:
+   `SHOW TABLES FROM acore_characters LIKE 'mod_player_stats%';`
+
+**On the Playerbots fork of AzerothCore** (`mod-playerbots/azerothcore-wotlk`),
+the module does not compile as-is: it calls `WorldSession::IsHeadless()`, which
+upstream AzerothCore added and the fork still names `IsBot()`. Add this after the
+includes in `src/mod_player_statistics.cpp` and use it in place of the two
+`->IsHeadless()` calls:
+
+```cpp
+namespace
+{
+    template <typename S>
+    bool CompatIsHeadless(S const* session)
+    {
+        if constexpr (requires { session->IsHeadless(); })
+            return session->IsHeadless();
+        else
+            return session->IsBot();
+    }
+}
+```
+
+Prefer this to a plain `IsBot()` substitution. On a core that has both, upstream
+stops setting the flag `IsBot()` reads, so it would report every bot as human.
+The same pattern is what mod-dungeon-clear uses in its `DcCoreCompat.h`.
+
+The panel only ever reads these tables. Pruning old rows (Playerbots produce most
+of them) is safe for the panel; the Leaderboards page shows where the data starts
+so a pruned "all time" is never mistaken for lifetime totals.
 
 ## Quick install
 
@@ -136,7 +182,9 @@ Or edit `/etc/acore/soap.env` afterwards and restart the service.
 
 1. Create a system user: `useradd --system --no-create-home --shell /usr/sbin/nologin acoreweb`
 2. Copy `app/` to `/opt/acore-webadmin`, owned by that user
-3. Create the MySQL account and apply `deploy/grants.sql` with the placeholders replaced
+3. Create the MySQL account and apply `deploy/grants.sql` with the placeholders replaced.
+   The mod-player-statistics tables must already exist: MySQL rejects a table-level
+   `GRANT` on a table that does not.
 4. Create `/etc/acore` mode `0711`, and the three `*.env` files mode `0640`,
    owned `root:acoreweb` — see [CONFIGURATION.md](CONFIGURATION.md) for their contents
 5. Render `deploy/acore-webadmin.service.template` into `/etc/systemd/system/`

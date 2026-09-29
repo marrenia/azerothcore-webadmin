@@ -7,6 +7,7 @@ from core import (
     soap, WORLD_DB,
 )
 from soap import SoapError
+import bp_stats
 
 bp = Blueprint("chars", __name__)
 
@@ -63,8 +64,10 @@ def index():
 def detail(guid):
     c = _char_or_404(guid)
     teles = query(f"SELECT name FROM {WORLD_DB}.game_tele ORDER BY name LIMIT 2000")
+    cstats, cstats_error = bp_stats.character_stats(guid)
     return render_template("character.html", c=c, world_up=server_online(),
-                           max_level=MAX_LEVEL, teles=teles, nav="characters")
+                           max_level=MAX_LEVEL, teles=teles, nav="characters",
+                           cstats=cstats, cstats_error=cstats_error)
 
 
 @bp.route("/character/<int:guid>/teleport", methods=["POST"])

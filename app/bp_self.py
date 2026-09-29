@@ -15,6 +15,7 @@ from core import (
     ALL_ROLES, AUTH_DB, CHAR_DB, ban_state, current_account_id, execute,
     query, require_role, srp6_make, validate_credentials,
 )
+import bp_stats
 
 bp = Blueprint("self", __name__, url_prefix="/me")
 
@@ -115,7 +116,9 @@ def character_detail(guid):
     if c["account"] != account_id:
         # Strict ownership scoping: this is not this caller's character.
         abort(403)
-    return render_template("me_character.html", c=c, nav="me")
+    cstats, cstats_error = bp_stats.character_stats(guid)
+    return render_template("me_character.html", c=c, nav="me",
+                           cstats=cstats, cstats_error=cstats_error)
 
 
 @bp.route("/tickets")

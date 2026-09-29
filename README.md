@@ -46,8 +46,10 @@ What that means in practice:
 - The design decisions in here are real and were verified against a running server
   (see `docs/DESIGN-NOTES.md`), but they were reached empirically — try it, watch it
   fail, fix it — not from deep familiarity with the AzerothCore codebase.
-- There is no test suite. Verification was manual: run it, hit the endpoint, check
-  the database, read the server log.
+- The test suite (`python3 -m pytest`) covers authentication, per-route role guards,
+  self-service scoping and the statistics layer, against a faked database and SOAP
+  endpoint. It does not exercise a real server: live behaviour was still verified
+  by hand - run it, hit the endpoint, check the database, read the server log.
 - Expect rough edges. Expect bugs that a test suite would have caught.
 
 If you need something you can trust with an exposed, multi-user, or commercial
@@ -97,7 +99,7 @@ port for you.
 | Tab | What's in it |
 |---|---|
 | **Accounts** | Create (correct SRP6), list, search, set GM level and expansion, change password, delete. Hides playerbot accounts by default. |
-| **Characters** | Browse, inspect, rename, set level, kick, teleport, send mail/items/money, force combat stop, restore deleted characters. |
+| **Characters** | Browse, inspect, rename, set level, kick, teleport, send mail/items/money, force combat stop, restore deleted characters. Each character page shows its statistics: totals, favourite prey, nemesis, and an activity timeline. |
 | **Online** | Who is connected right now. |
 | **Tracker** | Periodic `pinfo` sampling into SQLite, with per-character history and inferred activity. |
 | **Moderation** | Account bans, character bans, IP bans, mutes — with reasons and durations. GAMEMASTER+. |
@@ -108,7 +110,8 @@ port for you.
 | **Tickets** | Open GM tickets: list, comment, close. MODERATOR+. |
 | **Server** | Live status, MOTD, broadcasts, save-all, realm gate. GAMEMASTER+; restart/shutdown is ADMIN only. |
 | **Console** | Arbitrary GM commands over SOAP, with a deny list for the genuinely destructive ones. ADMIN only. |
-| **My Account** | PLAYER (and everyone else's own account): own details, ban/mute state, password change, own characters including deleted, own tickets and GM responses. |
+| **Leaderboards** | NPC kills, PvP kills, deaths, quests, achievements and levels gained; most-killed and deadliest NPCs; daily activity. Filter humans / Playerbots / everyone and by period. Every role; staff also see which humans are online right now. Needs [mod-player-statistics](https://github.com/ShaneBair/mod-player-statistics). |
+| **My Account** | PLAYER (and everyone else's own account): own details, ban/mute state, password change, own characters including deleted (with their statistics), own tickets and GM responses. |
 
 ## How it's put together
 
@@ -137,6 +140,11 @@ the UI says so instead of showing you a stale number dressed up as a live one.
 ## Requirements
 
 - A working AzerothCore 3.3.5 realm with its databases in MySQL/MariaDB
+- **[mod-player-statistics](https://github.com/ShaneBair/mod-player-statistics)** installed
+  on that realm, with its SQL applied (start the worldserver once after adding it). The
+  installer checks for its tables and stops if they are missing. On the Playerbots fork
+  of AzerothCore, the module currently needs a one-line compatibility change - see
+  [docs/INSTALL.md](docs/INSTALL.md#mod-player-statistics).
 - Python 3.9+, `python3-flask`, `python3-pymysql`, `python3-gunicorn`
 - `nginx` and `openssl` for the bundled TLS proxy (installed automatically by
   `deploy/install.sh` unless `ENABLE_TLS=0`)

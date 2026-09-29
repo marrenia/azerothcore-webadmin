@@ -25,6 +25,12 @@ GRANT SELECT ON `{{CHAR_DB}}`.`guild`            TO '{{DB_USER}}'@'localhost';
 GRANT SELECT ON `{{CHAR_DB}}`.`guild_member`     TO '{{DB_USER}}'@'localhost';
 GRANT SELECT ON `{{CHAR_DB}}`.`gm_ticket`        TO '{{DB_USER}}'@'localhost';
 
+-- mod-player-statistics (required): leaderboards and per-character statistics.
+-- Read-only. The migrations table holds the canonical-death cutoff, which the
+-- panel needs to count total deaths correctly on upgraded installations.
+GRANT SELECT ON `{{CHAR_DB}}`.`mod_player_stats_events`     TO '{{DB_USER}}'@'localhost';
+GRANT SELECT ON `{{CHAR_DB}}`.`mod_player_stats_migrations` TO '{{DB_USER}}'@'localhost';
+
 -- World: only the tables the Customize tab edits. Omit this whole block if you do
 -- not want world editing; the rest of the panel works without it.
 GRANT SELECT, INSERT, UPDATE         ON `{{WORLD_DB}}`.`creature_template`   TO '{{DB_USER}}'@'localhost';
@@ -34,3 +40,5 @@ GRANT SELECT, INSERT, DELETE         ON `{{WORLD_DB}}`.`gameobject`          TO 
 GRANT SELECT, INSERT, UPDATE, DELETE ON `{{WORLD_DB}}`.`npc_vendor`          TO '{{DB_USER}}'@'localhost';
 GRANT SELECT, INSERT, UPDATE, DELETE ON `{{WORLD_DB}}`.`game_tele`           TO '{{DB_USER}}'@'localhost';
 GRANT SELECT                         ON `{{WORLD_DB}}`.`item_template`       TO '{{DB_USER}}'@'localhost';
+-- Quest names in character statistics timelines (read-only).
+GRANT SELECT                         ON `{{WORLD_DB}}`.`quest_template`      TO '{{DB_USER}}'@'localhost';

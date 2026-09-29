@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Leaderboards{% endblock %}
+
+{% macro who(r) -%}
+  {%- if r.name -%}
+    {%- if staff -%}<a href="{{ url_for('chars.detail', guid=r.guid) }}"><strong>{{ r.name }}</strong></a>
+    {%- else -%}<strong>{{ r.name }}</strong>{%- endif -%}
+    {% if r.level %}<span class="faint" style="font-size:12px"> &middot; {{ r.level }}
+      <span style="color:{{ class_color(r['class']) }}">{{ class_name(r['class']) }}</span></span>{% endif %}
+  {%- else -%}<span class="faint">deleted character #{{ r.guid }}</span>{%- endif %}
+  {% if r.is_bot %}<span class="tag bot">bot</span>{% endif %}
+{%- endmacro %}
+
+{% macro creature(r) -%}
+  {%- if r.name -%}{{ r.name }}{%- else -%}<span class="faint">creature #{{ r.entry }}</span>{%- endif -%}
+{%- endmacro %}
+
+{% block body %}
+
+<div class="page-head">
+  <h1>Leaderboards</h1>
+  <p>Who has done the most on this realm, from the
+     <span class="mono">mod-player-statistics</span> event log.</p>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="get" class="row">
+      <div class="field">
+        <label for="pop">Who</label>
+        <select id="pop" name="pop">
+          {% for key, label in populations.items() %}
+          <option value="{{ key }}" {{ 'selected' if key == population }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="window">Period</label>
+        <select id="window" name="window">
+          {% for key, w in windows.items() %}
+          <option value="{{ key }}" {{ 'selected' if key == window }}>{{ w[0] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button>Show</button>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+  <div class="flash error">{{ error }}</div>
+{% else %}
+
+{% set t = data.totals %}
+<div class="tiles">
+  <div class="tile"><div class="n">{{ '{:,}'.format(t.npc_kills) }}</div><div class="l">NPC kills</div></div>
+  <div class="tile"><div class="n">{{ '{:,}'.format(t.pvp_kills) }}</div><div class="l">PvP kills</div></div>
+  <div class="tile"><div class="n">{{ '{:,}'.format(t.deaths) }}</div><div class="l">Deaths</div></div>
+  <div class="tile"><div class="n">{{ '{:,}'.format(t.quests) }}</div><div class="l">Quests</div></div>
+  <div class="tile"><div class="n">{{ '{:,}'.format(t.achievements) }}</div><div class="l">Achievements</div></div>
+  <div class="tile"><div class="n dim">{{ '{:,}'.format(t.active_characters) }}</div><div class="l">Active characters</div></div>
+  <div class="tile">
+    <div class="n">{{ online|length if online is not none else '—' }}</div>
+    <div class="l">Humans online</div>
+  </div>
+</div>
+
+<div class="grid2">
+  {% for key, title, unit in board_defs %}
+  {% set rows = data.boards[key] %}
+  <div class="card">
+    <h2>{{ title }}</h2>
+    {% if rows %}
+    <table>
+      <thead><tr><th class="num">#</th><th>Character</th><th class="num">{{ unit|capitalize }}</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="num mono muted">{{ loop.index }}</td>
+          <td>{{ who(r) }}</td>
+          <td class="num mono">{{ '{:,}'.format(r.value|int) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty">Nothing recorded for this period yet.</div>{% endif %}
+    {% if key == 'deaths' and data.boards.death_cutoff is none %}
+      <div class="card-body hint">Legacy deaths are excluded: the module's
+        <span class="mono">canonical_player_death_v1</span> migration row is missing, so only
+        canonical deaths are counted.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% for key, title, unit in (('most_killed', 'Most-killed NPCs', 'kills'),
+                               ('deadliest', 'Deadliest NPCs', 'players killed')) %}
+  {% set rows = data.boards[key] %}
+  <div class="card">
+    <h2>{{ title }}</h2>
+    {% if rows %}
+    <table>
+      <thead><tr><th class="num">#</th><th>Creature</th><th class="num">{{ unit|capitalize }}</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="num mono muted">{{ loop.index }}</td>
+          <td>{{ creature(r) }}</td>
+          <td class="num mono">{{ '{:,}'.format(r.value|int) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty">Nothing recorded for this period yet.</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>Daily activity <span class="count">&mdash; last 14 days, {{ populations[population]|lower }}</span></h2>
+  <div class="card-body">
+    {% if data.daily %}
+      {% for d in data.daily %}
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:9px">
+        <div class="mono" style="width:96px;font-size:13px">{{ d.day }}</div>
+        <div class="bar" style="flex:1">
+          <span style="width:{{ d.pct }}%;background:linear-gradient(90deg,var(--gold-dim),var(--gold))"></span>
+        </div>
+        <div class="mono muted" style="width:230px;text-align:right;font-size:12.5px">
+          {{ '{:,}'.format(d.kills) }} kills &middot; {{ d.quests }} quests &middot; {{ d.deaths }} deaths
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}<div class="empty">No activity in the last 14 days.</div>{% endif %}
+  </div>
+</div>
+
+{% set cov = data.coverage %}
+{% if cov.oldest %}
+<p class="hint">
+  Data starts {{ cov.oldest.strftime('%Y-%m-%d') }}.
+  {% if cov.oldest_bot and cov.oldest_human and cov.oldest_bot > cov.oldest_human %}
+    Playerbot events only go back to {{ cov.oldest_bot.strftime('%Y-%m-%d') }} - this host
+    prunes old bot activity, so bot totals cover that period rather than all time.
+  {% endif %}
+  Leaderboards refresh at most once a minute.
+</p>
+{% endif %}
+{% endif %}
+
+{% if staff %}
+<div class="card">
+  <h2>Humans online {% if online is not none %}<span class="count">&mdash; {{ online|length }}</span>{% endif %}</h2>
+  {% if online_error %}
+    <div class="card-body muted">{{ online_error }}</div>
+  {% elif online %}
+  <table>
+    <thead><tr><th>Character</th><th>Account</th><th>Location</th><th class="num">Level</th></tr></thead>
+    <tbody>
+      {% for p in online %}
+      <tr>
+        <td><a href="{{ url_for('chars.detail', guid=p.characterGuid) }}"><strong>{{ p.characterName }}</strong></a>
+            <span class="faint" style="font-size:12px"> &middot; {{ race_name(p.raceId) }}
+            <span style="color:{{ class_color(p.classId) }}">{{ class_name(p.classId) }}</span></span></td>
+        <td class="mono">{{ p.accountLogin }}</td>
+        <td>{{ p.location or zone_name(p.zoneId) }}</td>
+        <td class="num mono">{{ p.level }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No human players online. Playerbots are not counted.</div>
+  {% endif %}
+  <div class="card-body hint">From the module's <span class="mono">playerstats online</span> command,
+    which reads live sessions and excludes Playerbots itself.</div>
+</div>
+{% endif %}
+
+{% endblock %}

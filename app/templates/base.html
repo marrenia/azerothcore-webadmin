@@ -415,6 +415,9 @@
       {% if role == ROLE_ADMIN %}
       <a href="{{ url_for('server.console') }}"  class="{{ 'on' if nav == 'console' }}">Console</a>
       {% endif %}
+      {% if role is not none %}
+      <a href="{{ url_for('stats.index') }}"      class="{{ 'on' if nav == 'stats' }}">Leaderboards</a>
+      {% endif %}
       {% if session_account_id is not none %}
       <a href="{{ url_for('self.index') }}"      class="{{ 'on' if nav == 'me' }}">My Account</a>
       {% endif %}

@@ -31,6 +31,7 @@ import bp_mod
 import bp_realm
 import bp_self
 import bp_server
+import bp_stats
 import bp_tracker
 import bp_world
 
@@ -99,6 +100,7 @@ app.register_blueprint(bp_customize.bp)
 app.register_blueprint(bp_mod.bp)
 app.register_blueprint(bp_realm.bp)
 app.register_blueprint(bp_self.bp)
+app.register_blueprint(bp_stats.bp)
 app.register_blueprint(bp_tracker.bp)
 app.register_blueprint(bp_world.bp)
 

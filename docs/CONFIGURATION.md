@@ -54,6 +54,9 @@ WORLD_DB=acore_world
 | `WEB_ADMIN_PASS` | *required* | Its password, **stored in plaintext** (see SECURITY.md) |
 | `WEB_SECRET_KEY` | *required* | Flask session signing key. Changing it logs everyone out. |
 | `BOT_ACCOUNT_PREFIX` | `rndbot` | Accounts whose username starts with this are treated as playerbots and hidden by default |
+| `STATS_DEFAULT_POPULATION` | `human` | Leaderboards shown first: `human`, `bot` or `all`. On a realm with few humans and many Playerbots, `all` is usually more interesting. |
+| `STATS_DEFAULT_WINDOW` | `all` | Default leaderboard period: `1d`, `7d`, `30d` or `all` |
+| `STATS_CACHE_SECONDS` | `60` | How long leaderboard results are reused. The event table grows without bound, so `0` (no cache) is only sensible on small realms. |
 
 ```ini
 WEB_ADMIN_USER=admin
@@ -253,6 +256,7 @@ practical, dropped capabilities, `no-new-privileges`, a healthcheck on
 | `AUTH_DB`, `CHAR_DB`, `WORLD_DB` | stock AzerothCore names |
 | `ADMIN_USER` | `admin` |
 | `BOT_ACCOUNT_PREFIX` | `rndbot` |
+| `STATS_DEFAULT_POPULATION`, `STATS_DEFAULT_WINDOW`, `STATS_CACHE_SECONDS` | `human`, `all`, `60` |
 | `SOAP_HOST`, `SOAP_PORT`, `SOAP_USER`, `SOAP_PASS` | `127.0.0.1`, `7878`, empty, empty |
 | `MYSQL_ADMIN` | `mysql` |
 
