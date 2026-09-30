@@ -148,11 +148,14 @@
 
   /* ---------- tables ---------- */
   table { width:100%; border-collapse:collapse; font-size:14px; }
+  /* Sticky on thead, not on each th: one composited layer per table instead
+     of one per header cell. Opaque background (was rgba(0,0,0,.25)) so the
+     compositor never re-blends it over the rows sliding underneath. */
+  thead { position:sticky; top:var(--topbar-h); z-index:1; }
   thead th {
-    text-align:left; padding:9px 14px; background:rgba(0,0,0,.25);
+    text-align:left; padding:9px 14px; background:#0f151c;
     border-bottom:1px solid var(--line-2); color:var(--muted);
     font-size:10.5px; text-transform:uppercase; letter-spacing:.9px; font-weight:700;
-    position:sticky; top:var(--topbar-h);
   }
   tbody td { padding:10px 14px; border-bottom:1px solid rgba(51,44,33,.6); }
   tbody tr:last-child td { border-bottom:none; }
@@ -267,7 +270,9 @@
   :root {
     --ice:#8fd8ff; --ice-bright:#d9f4ff; --ice-dim:#3a7899;
     --void:#05080d; --steel:#18212b;
-    --shadow:0 12px 34px rgba(0,0,0,.48),0 1px 0 rgba(143,216,255,.06) inset;
+    /* Blur radius 34px -> 16px: wide blurs were a large share of the raster
+       cost of every card edge scrolled into view. */
+    --shadow:0 6px 16px rgba(0,0,0,.45),0 1px 0 rgba(143,216,255,.06) inset;
   }
   html { color-scheme:dark; scrollbar-color:var(--ice-dim) var(--void); }
   /* Performance: the backdrop lives on a position:fixed layer, not on body with
@@ -281,9 +286,9 @@
     background-image:
       linear-gradient(180deg,rgba(5,12,20,.05),rgba(2,5,8,.72)),
       radial-gradient(ellipse 90% 55% at 52% -12%,rgba(72,156,207,.20),transparent 68%),
-      radial-gradient(circle at 12% 32%,rgba(44,95,130,.10),transparent 30%),
-      linear-gradient(115deg,transparent 0 48%,rgba(143,216,255,.018) 49% 50%,transparent 51% 100%);
-    background-size:auto,auto,auto,44px 44px;
+      radial-gradient(circle at 12% 32%,rgba(44,95,130,.10),transparent 30%);
+    /* (A 44px diagonal line pattern at 1.8% opacity used to sit here: invisible,
+       but it measurably cost frames while scrolling.) */
   }
   a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible {
     outline:2px solid var(--ice); outline-offset:2px;
@@ -312,9 +317,18 @@
     text-shadow:0 0 12px rgba(143,216,255,.3);
   }
   .realm-pill { background:rgba(9,17,25,.85);border-color:rgba(95,167,207,.25); }
+  /* Opaque, and on cards the gradient covers at most the top 600px: a
+     translucent gradient over a whole 3000px table card made every tile of it
+     need raster work and re-blending over the backdrop while scrolling. Short
+     cards (the common case) render exactly as before. Tiles are tiny, so they
+     keep the full gradient. */
   .card,.tile {
-    background:linear-gradient(150deg,rgba(27,35,44,.97),rgba(12,17,23,.98));
+    background:linear-gradient(150deg,#1a222b,#0c1117);
     border-color:rgba(95,123,143,.32);
+  }
+  .card {
+    background:linear-gradient(150deg,#1a222b,#0c1117) 0 0 / 100% 600px no-repeat, #0c1117;
+    background:linear-gradient(150deg,#1a222b,#0c1117) 0 0 / 100% min(100%, 600px) no-repeat, #0c1117;
   }
   .card { position:relative; }
   .card::after {
